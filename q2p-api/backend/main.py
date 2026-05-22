@@ -11,7 +11,8 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 from configs.base import settings
-from backend.app.core.database import ensure_compatibility
+from backend.app.core.database import ensure_compatibility, Base, engine
+from backend.app.models import all_models  # noqa: F401
 from backend.app.api.v1.router import api_router
 from escalations.scheduler import start_scheduler, stop_scheduler
 
@@ -26,6 +27,8 @@ os.makedirs(settings.CHROMA_PERSIST_DIR, exist_ok=True)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Q2P Platform starting…")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     await ensure_compatibility()
     start_scheduler()
     yield

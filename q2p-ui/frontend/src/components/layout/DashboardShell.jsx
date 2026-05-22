@@ -10,55 +10,57 @@ import {
 
 const NAV = {
   SUPER_ADMIN: [
-    { label:'Overview',      icon:LayoutDashboard, to:'/dashboard/admin' },
-    { label:'User Mgmt',     icon:Users,           to:'/dashboard/admin/users' },
-    { label:'Audit Logs',    icon:ClipboardList,   to:'/dashboard/admin/audit' },
-    { label:'Escalations',   icon:Bell,            to:'/dashboard/admin/escalations' },
-    { label:'Knowledge Base',icon:BookOpen,        to:'/dashboard/admin/kb' },
-    { label:'RAG Chat',      icon:MessageSquare,   to:'/dashboard/admin/rag-chat' },
+    { label: 'Overview', icon: LayoutDashboard, to: '/dashboard/admin' },
+    { label: 'User Mgmt', icon: Users, to: '/dashboard/admin/users' },
+    { label: 'Audit Logs', icon: ClipboardList, to: '/dashboard/admin/audit' },
+    { label: 'Escalations', icon: Bell, to: '/dashboard/admin/escalations' },
+    { label: 'Knowledge Base', icon: BookOpen, to: '/dashboard/admin/kb' },
+    { label: 'RAG Chat', icon: MessageSquare, to: '/dashboard/admin/rag-chat' },
   ],
   BANKER: [
-    { label:'My Cases',     icon:Briefcase,     to:'/dashboard/banker' },
-    { label:'New Case',     icon:FileText,      to:'/dashboard/banker/new' },
-    { label:'Quotes',       icon:Scale,         to:'/dashboard/banker/quotes' },
-    { label:'Approvals',    icon:CheckCircle,   to:'/dashboard/banker/approvals' },
-    { label:'RAG Chat',     icon:MessageSquare, to:'/dashboard/banker/rag-chat' },
+    { label: 'My Cases', icon: Briefcase, to: '/dashboard/banker' },
+    { label: 'New Case', icon: FileText, to: '/dashboard/banker/new' },
+    { label: 'Customers', icon: Users, to: '/dashboard/banker/customers' },
+    { label: 'Quotes', icon: Scale, to: '/dashboard/banker/quotes' },
+    { label: 'Approvals', icon: CheckCircle, to: '/dashboard/banker/approvals' },
+    { label: 'Notifications', icon: Bell, to: '/dashboard/banker/notifications' },
+    { label: 'RAG Chat', icon: MessageSquare, to: '/dashboard/banker/rag-chat' },
   ],
   CUSTOMER: [
-    { label:'My Cases',    icon:Home,         to:'/dashboard/customer' },
-    { label:'OTP Consent', icon:ShieldCheck,  to:'/dashboard/customer/consent' },
-    { label:'My Policies', icon:FileText,     to:'/dashboard/customer/policies' },
-    { label:'Documents',   icon:ClipboardList,to:'/dashboard/customer/documents' },
+    { label: 'My Cases', icon: Home, to: '/dashboard/customer' },
+    { label: 'OTP Consent', icon: ShieldCheck, to: '/dashboard/customer/consent' },
+    { label: 'My Policies', icon: FileText, to: '/dashboard/customer/policies' },
+    { label: 'Documents', icon: ClipboardList, to: '/dashboard/customer/documents' },
   ],
   UNDERWRITER: [
-    { label:'UW Queue',   icon:ClipboardList, to:'/dashboard/underwriter' },
-    { label:'Decisions',  icon:CheckCircle,   to:'/dashboard/underwriter/decisions' },
+    { label: 'UW Queue', icon: ClipboardList, to: '/dashboard/underwriter' },
+    { label: 'Decisions', icon: CheckCircle, to: '/dashboard/underwriter/decisions' },
   ],
   COMPLIANCE: [
-    { label:'Dashboard',  icon:LayoutDashboard, to:'/dashboard/compliance' },
-    { label:'Exceptions', icon:Bell,            to:'/dashboard/compliance/exceptions' },
-    { label:'Consents',   icon:ShieldCheck,     to:'/dashboard/compliance/consents' },
-    { label:'Audit Logs', icon:ClipboardList,   to:'/dashboard/compliance/audit' },
+    { label: 'Dashboard', icon: LayoutDashboard, to: '/dashboard/compliance' },
+    { label: 'Exceptions', icon: Bell, to: '/dashboard/compliance/exceptions' },
+    { label: 'Consents', icon: ShieldCheck, to: '/dashboard/compliance/consents' },
+    { label: 'Audit Logs', icon: ClipboardList, to: '/dashboard/compliance/audit' },
   ],
   OPS_ADMIN: [
-    { label:'Medical Queue',  icon:Stethoscope,   to:'/dashboard/ops' },
-    { label:'Escalations',    icon:Bell,          to:'/dashboard/ops/escalations' },
-    { label:'SLA Monitor',    icon:ClipboardList, to:'/dashboard/ops/sla' },
+    { label: 'Medical Queue', icon: Stethoscope, to: '/dashboard/ops' },
+    { label: 'Escalations', icon: Bell, to: '/dashboard/ops/escalations' },
+    { label: 'SLA Monitor', icon: ClipboardList, to: '/dashboard/ops/sla' },
   ],
 }
 
 export default function DashboardShell() {
-  const dispatch  = useDispatch()
-  const navigate  = useNavigate()
-  const { user }  = useSelector(s => s.auth)
+  const dispatch = useDispatch()
+  const navigate = useNavigate()
+  const { user } = useSelector(s => s.auth)
   const { sidebarOpen } = useSelector(s => s.ui)
-  const navItems  = NAV[user?.role] || []
+  const navItems = NAV[user?.role] || []
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background:'var(--bg)' }}>
+    <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
       {/* Sidebar */}
       <aside className={`flex flex-col flex-shrink-0 transition-all duration-200 border-r border-[#2a2f45]`}
-             style={{ width: sidebarOpen ? 240 : 64, background:'var(--surface)' }}>
+        style={{ width: sidebarOpen ? 240 : 64, background: 'var(--surface)' }}>
         {/* Logo */}
         <div className="flex items-center gap-3 px-4 py-5 border-b border-[#2a2f45]">
           <div className="w-8 h-8 rounded-lg bg-[#6366f1] flex items-center justify-center text-white font-bold text-xs flex-shrink-0">
@@ -85,7 +87,7 @@ export default function DashboardShell() {
         <div className="border-t border-[#2a2f45] p-3">
           {sidebarOpen && (
             <div className="mb-2 px-2">
-              <p className="text-xs font-semibold truncate">{user?.name || user?.id?.slice(0,8)}</p>
+              <p className="text-xs font-semibold truncate">{user?.name || user?.id?.slice(0, 8)}</p>
               <p className="text-xs text-[#6b7280]">{user?.role}</p>
             </div>
           )}
@@ -100,7 +102,7 @@ export default function DashboardShell() {
       {/* Main */}
       <div className="flex flex-col flex-1 overflow-hidden">
         {/* Topbar */}
-        <header className="flex items-center gap-4 px-5 h-14 border-b border-[#2a2f45] flex-shrink-0" style={{ background:'var(--surface)' }}>
+        <header className="flex items-center gap-4 px-5 h-14 border-b border-[#2a2f45] flex-shrink-0" style={{ background: 'var(--surface)' }}>
           <button onClick={() => dispatch(toggleSidebar())} className="text-[#6b7280] hover:text-white cursor-pointer">
             <Menu size={20} />
           </button>

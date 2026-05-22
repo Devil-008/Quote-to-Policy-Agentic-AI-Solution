@@ -114,6 +114,28 @@ class Case(Base):
     stage_logs = relationship("WorkflowStageLog", back_populates="case")
 
 
+# ─────────────────────────────── BANKER INTAKE ──────────────────────
+
+
+class CustomerIntakeRecord(Base):
+    __tablename__ = "customer_intake_records"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    banker_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    source_type = Column(String(50), nullable=False, default="MANUAL")
+    source_filename = Column(String(255))
+    raw_payload = Column(JSON)
+    normalized_payload = Column(JSON)
+    status = Column(String(50), default="ACTIVE")
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    banker = relationship("User", foreign_keys=[banker_id])
+    customer = relationship("User", foreign_keys=[user_id])
+
+
 # ─────────────────────────────── QUOTE ───────────────────────────────
 
 
@@ -359,6 +381,27 @@ class WorkflowStageLog(Base):
     remarks = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     case = relationship("Case", back_populates="stage_logs")
+
+
+# ─────────────────────────────── NOTIFICATION ───────────────────────
+
+
+class NotificationLog(Base):
+    __tablename__ = "notification_logs"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    recipient_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+    recipient_email = Column(String(255), nullable=False)
+    subject = Column(String(500), nullable=False)
+    body = Column(Text, nullable=False)
+    notification_type = Column(String(100), default="EMAIL")
+    reference_type = Column(String(100), nullable=True)
+    reference_id = Column(String(36), nullable=True)
+    status = Column(String(50), default="PENDING")
+    sent_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+    retry_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 # ─────────────────────────────── NOTIFICATION / EMAIL ────────────────
