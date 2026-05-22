@@ -1,0 +1,80 @@
+version: "3.9"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: q2p_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: q2p_db
+      MYSQL_USER: q2p_user
+      MYSQL_PASSWORD: q2p_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: q2p_chromadb
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+
+  arangodb:
+    image: arangodb:3.11
+    container_name: q2p_arangodb
+    restart: unless-stopped
+    environment:
+      ARANGO_ROOT_PASSWORD: arangopassword
+    ports:
+      - "8529:8529"
+    volumes:
+      - arango_data:/var/lib/arangodb3
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: q2p_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=mysql+asyncmy://q2p_user:q2p_password@mysql:3306/q2p_db
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - ARANGO_HOST=arangodb
+      - ARANGO_PORT=8529
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - upload_data:/tmp/q2p-uploads
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: q2p_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
+  chroma_data:
+  arango_data:
+  upload_data:

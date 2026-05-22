@@ -1,0 +1,76 @@
+import logging
+import os
+import sys
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+from configs.base import settings
+from backend.app.core.database import ensure_compatibility
+from backend.app.api.v1.router import api_router
+from escalations.scheduler import start_scheduler, stop_scheduler
+
+logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL, logging.INFO))
+logger = logging.getLogger(__name__)
+
+os.makedirs(settings.FILE_UPLOAD_PATH, exist_ok=True)
+os.makedirs(settings.LOG_PATH, exist_ok=True)
+os.makedirs(settings.CHROMA_PERSIST_DIR, exist_ok=True)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Q2P Platform starting…")
+    await ensure_compatibility()
+    start_scheduler()
+    yield
+    stop_scheduler()
+    logger.info("Q2P Platform stopped.")
+
+
+app = FastAPI(
+    title="Q2P — Quote-to-Policy Platform",
+    description="Enterprise AI-native insurance workflow automation platform",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(api_router)
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "main:app",
+        host=settings.APP_HOST,
+        port=settings.APP_PORT,
+        reload=settings.DEBUG,
+        log_level=settings.LOG_LEVEL.lower(),
+    )
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "app": settings.APP_NAME, "env": settings.APP_ENV}
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
