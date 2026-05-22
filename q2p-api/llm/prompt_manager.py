@@ -4,6 +4,29 @@ import json
 class PromptManager:
 
     @staticmethod
+    def customer_intake_normalization(raw_row: dict) -> str:
+        return f"""You are a data extraction assistant for insurance customer onboarding.
+
+Normalize the following CSV or form row into a clean customer intake JSON.
+
+ROW:
+{json.dumps(raw_row, indent=2)}
+
+Return JSON with:
+- name: string
+- email: string
+- phone: string
+- date_of_birth: string|null
+- annual_income: number|null
+- dependents: number|null
+- risk_appetite: LOW|MEDIUM|HIGH|null
+- kyc_status: string|null
+- financial_goals: list of strings
+- notes: string|null
+
+Respond ONLY with valid JSON."""
+
+    @staticmethod
     def needs_analysis(customer_profile: dict) -> str:
         return f"""You are an expert insurance advisor.
 

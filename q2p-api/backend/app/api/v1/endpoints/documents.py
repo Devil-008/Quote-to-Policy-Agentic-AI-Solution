@@ -1,6 +1,7 @@
 """
 Documents endpoint — upload, list, and retrieve case/medical documents.
 """
+
 import os
 import uuid
 import aiofiles
@@ -8,10 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from ..core.database import get_db
-from ..core.security import get_current_user, require_roles
-from ..models.user import User, UserRole
-from ..models.otp import MedicalDocument, MedicalRequest
+from backend.app.core.database import get_db
+from backend.app.core.security import get_current_user, require_roles
+from backend.app.models.user import User, UserRole
+from backend.app.models.all_models import MedicalDocument, MedicalRequest
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -29,7 +30,9 @@ async def upload_document(
 ):
     """Upload a medical or case document."""
     # Validate medical request exists
-    result = await db.execute(select(MedicalRequest).where(MedicalRequest.id == medical_request_id))
+    result = await db.execute(
+        select(MedicalRequest).where(MedicalRequest.id == medical_request_id)
+    )
     med_req = result.scalar_one_or_none()
     if not med_req:
         raise HTTPException(status_code=404, detail="Medical request not found")
@@ -76,7 +79,9 @@ async def list_documents(
     current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(MedicalDocument).where(MedicalDocument.medical_request_id == medical_request_id)
+        select(MedicalDocument).where(
+            MedicalDocument.medical_request_id == medical_request_id
+        )
     )
     docs = result.scalars().all()
     return {
@@ -98,9 +103,12 @@ async def list_documents(
 async def verify_document(
     document_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.OPS_ADMIN, UserRole.SUPER_ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.OPS_ADMIN, UserRole.SUPER_ADMIN)
+    ),
 ):
     from sqlalchemy import update as sql_update
+
     await db.execute(
         sql_update(MedicalDocument)
         .where(MedicalDocument.id == document_id)
