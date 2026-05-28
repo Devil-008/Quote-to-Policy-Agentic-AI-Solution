@@ -5,11 +5,10 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
-import secrets
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,9 +27,52 @@ from llm.response_parser import ResponseParser
 
 router = APIRouter(prefix="/banker", tags=["banker"])
 
+DEFAULT_CUSTOMER_PASSWORD = "852456"
+
 llm = LLMService()
 pm = PromptManager()
 rp = ResponseParser()
+
+_FIELD_ALIASES = {
+    "name": ("name", "customer_name", "full_name", "customername"),
+    "email": ("email", "customer_email", "email_id", "customeremail"),
+    "phone": (
+        "phone",
+        "phone_number",
+        "customer_phone",
+        "contact_number",
+        "mobile",
+        "mobile_number",
+    ),
+    "date_of_birth": ("date_of_birth", "dob", "birth_date", "dateofbirth"),
+    "annual_income": ("annual_income", "income", "yearly_income"),
+    "dependents": ("dependents", "dependent_count"),
+    "risk_appetite": ("risk_appetite", "risk", "risk_tolerance"),
+    "kyc_status": ("kyc_status", "kyc"),
+    "financial_goals": ("financial_goals", "financial_goal", "goals"),
+    "notes": ("notes", "remark", "remarks"),
+}
+
+
+def _normalize_row_keys(data: Optional[dict]) -> dict:
+    if not isinstance(data, dict):
+        return {}
+    normalized = {}
+    for key, value in data.items():
+        if key is None:
+            continue
+        key_norm = str(key).strip().lower().replace("-", "_").replace(" ", "_")
+        normalized[key_norm] = value
+    return normalized
+
+
+def _first_value(*sources: dict, aliases: tuple[str, ...] = ()):
+    for source in sources:
+        for key in aliases:
+            value = source.get(key)
+            if value not in (None, "", []):
+                return value
+    return None
 
 
 class ManualCustomerRequest(BaseModel):
@@ -47,29 +89,32 @@ class ManualCustomerRequest(BaseModel):
 
 
 def _canonical_payload(raw: dict, normalized: Optional[dict] = None) -> dict:
-    merged = normalized or {}
-    financial_goals = merged.get("financial_goals") or raw.get("financial_goals") or []
+    raw_data = _normalize_row_keys(raw)
+    merged = _normalize_row_keys(normalized)
+    financial_goals = _first_value(merged, raw_data, aliases=_FIELD_ALIASES["financial_goals"]) or []
     if isinstance(financial_goals, str):
         financial_goals = [x.strip() for x in financial_goals.split(";") if x.strip()]
     return {
-        "name": merged.get("name")
-        or raw.get("name")
-        or raw.get("customer_name")
-        or raw.get("full_name"),
-        "email": merged.get("email") or raw.get("email") or raw.get("customer_email"),
-        "phone": merged.get("phone") or raw.get("phone") or raw.get("customer_phone"),
-        "date_of_birth": merged.get("date_of_birth")
-        or raw.get("date_of_birth")
-        or raw.get("dob")
-        or raw.get("customer_dob"),
-        "annual_income": merged.get("annual_income") or raw.get("annual_income"),
-        "dependents": merged.get("dependents") or raw.get("dependents"),
-        "risk_appetite": merged.get("risk_appetite") or raw.get("risk_appetite"),
-        "kyc_status": merged.get("kyc_status")
-        or raw.get("kyc_status")
-        or raw.get("kyc"),
+        "name": _first_value(merged, raw_data, aliases=_FIELD_ALIASES["name"]),
+        "email": (
+            (_first_value(merged, raw_data, aliases=_FIELD_ALIASES["email"]) or "")
+            .strip()
+            .lower()
+        ),
+        "phone": _first_value(merged, raw_data, aliases=_FIELD_ALIASES["phone"]),
+        "date_of_birth": _first_value(
+            merged, raw_data, aliases=_FIELD_ALIASES["date_of_birth"]
+        ),
+        "annual_income": _first_value(
+            merged, raw_data, aliases=_FIELD_ALIASES["annual_income"]
+        ),
+        "dependents": _first_value(merged, raw_data, aliases=_FIELD_ALIASES["dependents"]),
+        "risk_appetite": _first_value(
+            merged, raw_data, aliases=_FIELD_ALIASES["risk_appetite"]
+        ),
+        "kyc_status": _first_value(merged, raw_data, aliases=_FIELD_ALIASES["kyc_status"]),
         "financial_goals": financial_goals,
-        "notes": merged.get("notes") or raw.get("notes"),
+        "notes": _first_value(merged, raw_data, aliases=_FIELD_ALIASES["notes"]),
     }
 
 
@@ -92,6 +137,10 @@ async def _normalize_with_llm(raw_row: dict) -> dict:
     return _heuristic_normalize(raw_row)
 
 
+def _normalize_fast(raw_row: dict) -> dict:
+    return _heuristic_normalize(raw_row)
+
+
 async def _create_or_update_customer(
     db: AsyncSession,
     banker: User,
@@ -109,20 +158,22 @@ async def _create_or_update_customer(
 
     repo = UserRepository(db)
     existing = await repo.get_by_email(payload["email"])
-    temp_password = None
+    temp_password = DEFAULT_CUSTOMER_PASSWORD
     if existing:
         customer = existing
         customer.name = payload["name"] or customer.name
         customer.phone = payload["phone"] or customer.phone
+        customer.password_hash = get_password_hash(temp_password)
+        customer.must_change_password = 1
         if customer.role != UserRole.CUSTOMER:
             customer.role = UserRole.CUSTOMER
     else:
-        temp_password = secrets.token_urlsafe(8)
         customer = User(
             id=str(uuid.uuid4()),
             name=payload["name"],
             email=payload["email"],
             password_hash=get_password_hash(temp_password),
+            must_change_password=1,
             role=UserRole.CUSTOMER,
             phone=payload["phone"],
         )
@@ -144,19 +195,18 @@ async def _create_or_update_customer(
     await db.refresh(customer)
     await db.refresh(intake)
 
-    if temp_password:
-        subject, body = customer_invite_message(
-            customer.name, customer.email, temp_password
-        )
-        await queue_and_send_email(
-            db,
-            customer.email,
-            subject,
-            body,
-            recipient_id=customer.id,
-            reference_type="CUSTOMER_INTAKE",
-            reference_id=intake.id,
-        )
+    subject, body = customer_invite_message(
+        customer.name, customer.email, customer.id, temp_password
+    )
+    await queue_and_send_email(
+        db,
+        customer.email,
+        subject,
+        body,
+        recipient_id=customer.id,
+        reference_type="CUSTOMER_INTAKE",
+        reference_id=intake.id,
+    )
 
     banker_subject = f"Customer intake recorded for {customer.name}"
     banker_body = f"<p>Customer <strong>{customer.name}</strong> ({customer.email}) was added via {source_type}.</p>"
@@ -181,7 +231,7 @@ async def _create_or_update_customer(
     }
 
 
-async def _process_csv_import(file_bytes: bytes, filename: str, banker_id: str) -> None:
+async def _process_csv_import(file_bytes: bytes, filename: str, banker_id: str) -> dict:
     try:
         text = file_bytes.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -190,16 +240,20 @@ async def _process_csv_import(file_bytes: bytes, filename: str, banker_id: str) 
     reader = csv.DictReader(io.StringIO(text))
     rows = list(reader)
     if not rows:
-        return
+        return {"processed": 0, "imported": 0, "failed": 0, "errors": []}
 
     async with AsyncSessionLocal() as db:
         banker_repo = UserRepository(db)
         banker = await banker_repo.get_by_id(banker_id)
         if not banker:
-            return
+            return {"processed": len(rows), "imported": 0, "failed": len(rows), "errors": ["banker_not_found"]}
+
+        imported = 0
+        failed = 0
+        errors: list[str] = []
 
         for row in rows:
-            normalized = await _normalize_with_llm(row)
+            normalized = _normalize_fast(row)
             try:
                 await _create_or_update_customer(
                     db,
@@ -209,8 +263,13 @@ async def _process_csv_import(file_bytes: bytes, filename: str, banker_id: str) 
                     source_type="CSV",
                     source_filename=filename,
                 )
+                imported += 1
             except Exception:
-                continue
+                failed += 1
+                if len(errors) < 10:
+                    errors.append("row_import_failed")
+
+        return {"processed": len(rows), "imported": imported, "failed": failed, "errors": errors}
 
 
 @router.post("/customers/manual")
@@ -219,17 +278,18 @@ async def create_customer_manual(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles("BANKER", "SUPER_ADMIN")),
 ):
+    payload = body.model_dump()
+    payload["email"] = (payload.get("email") or "").strip().lower()
     return await _create_or_update_customer(
         db,
         current_user,
-        body.model_dump(),
+        payload,
         source_type="MANUAL",
     )
 
 
 @router.post("/customers/import")
 async def import_customers_csv(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: User = Depends(require_roles("BANKER", "SUPER_ADMIN")),
 ):
@@ -244,30 +304,65 @@ async def import_customers_csv(
     if not rows:
         raise HTTPException(status_code=400, detail="CSV file is empty")
 
-    background_tasks.add_task(
-        _process_csv_import,
-        content,
-        file.filename or "customers.csv",
-        str(current_user.id),
+    result = await _process_csv_import(
+        content, file.filename or "customers.csv", str(current_user.id)
     )
 
     return {
-        "message": "Customer import queued",
-        "processed": len(rows),
-        "status": "QUEUED",
+        "message": "Customer import completed",
+        "processed": result.get("processed", len(rows)),
+        "imported": result.get("imported", 0),
+        "failed": result.get("failed", 0),
+        "status": "COMPLETED",
+        "errors": result.get("errors", []),
     }
+
+
+@router.post("/customers/import/preview")
+async def import_customers_preview(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_roles("BANKER", "SUPER_ADMIN")),
+):
+    content = await file.read()
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(text))
+    rows = list(reader)
+    if not rows:
+        raise HTTPException(status_code=400, detail="CSV file is empty")
+
+    preview = []
+    for row in rows:
+        normalized = await _normalize_with_llm(row)
+        payload = _canonical_payload(row, normalized)
+        preview.append({"raw": row, "normalized": payload})
+
+    return {"preview": preview, "count": len(preview)}
 
 
 @router.get("/customers")
 async def list_customers(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles("BANKER", "SUPER_ADMIN")),
+    q: Optional[str] = None,
 ):
-    q = select(CustomerIntakeRecord).order_by(CustomerIntakeRecord.created_at.desc())
+    q_stmt = select(CustomerIntakeRecord).order_by(
+        CustomerIntakeRecord.created_at.desc()
+    )
     if current_user.role != UserRole.SUPER_ADMIN:
-        q = q.where(CustomerIntakeRecord.banker_id == str(current_user.id))
+        q_stmt = q_stmt.where(CustomerIntakeRecord.banker_id == str(current_user.id))
+    if q:
+        search = f"%{q.strip()}%"
+        q_stmt = q_stmt.join(CustomerIntakeRecord.customer).where(
+            (User.name.ilike(search))
+            | (User.email.ilike(search))
+            | (User.phone.ilike(search))
+        )
 
-    result = await db.execute(q)
+    result = await db.execute(q_stmt)
     items = []
     user_repo = UserRepository(db)
     for intake in result.scalars().all():

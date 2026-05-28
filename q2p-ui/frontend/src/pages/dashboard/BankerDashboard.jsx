@@ -3,7 +3,7 @@ import { Routes, Route } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import { fetchCases } from '../../store/slices/casesSlice'
 import { StatCard, DataTable, Badge, Card, SectionHeader, Btn, Input, Alert, Spinner, Modal } from '../../components/common'
-import { Briefcase, Clock, CheckCircle, FileText, Users, Bell, Upload } from 'lucide-react'
+import { Briefcase, Clock, CheckCircle, FileText, Bell, Upload, Search } from 'lucide-react'
 import api from '../../services/api'
 
 const STAGES = [
@@ -146,26 +146,71 @@ function CaseList() {
 // ── New Case Form ─────────────────────────────────────────────────────
 function NewCaseForm() {
   const { user } = useSelector(s => s.auth)
+  const [customers, setCustomers] = useState([])
+  const [selectedCustomerId, setSelectedCustomerId] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [loadingCustomers, setLoadingCustomers] = useState(true)
+  const [csvFile, setCsvFile] = useState(null)
+  const [csvUploading, setCsvUploading] = useState(false)
+  const [previewData, setPreviewData] = useState(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
   const [form, setForm] = useState({
-    customer_name: '', customer_email: '', customer_phone: '', customer_dob: '',
-    annual_income: '', sum_assured: '', premium_budget: '', policy_tenure: '20', purpose: '',
-    customer_id: '',
+    sum_assured: '', premium_budget: '', policy_tenure: '20', purpose: '',
   })
   const [loading, setL] = useState(false)
   const [err, setErr] = useState(null)
   const [ok, setOk] = useState(false)
   const set = k => v => setForm(f => ({ ...f, [k]: v }))
 
+  const selectedCustomer = customers.find((customer) => customer.user_id === selectedCustomerId) || null
+
+  const filteredCustomers = customers.filter((customer) => {
+    const query = searchTerm.trim().toLowerCase()
+    if (!query) return true
+    return [customer.name, customer.email, customer.phone]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query))
+  })
+
+  const buildCustomerProfile = (customer) => {
+    const profile = customer?.normalized_payload || {}
+    return {
+      ...profile,
+      name: customer?.name || profile.name || '',
+      email: customer?.email || profile.email || '',
+      phone: customer?.phone || profile.phone || '',
+      dob: profile.date_of_birth || profile.dob || '',
+      annual_income: Number(profile.annual_income) || 0,
+      dependents: Number(profile.dependents) || 0,
+      risk_appetite: profile.risk_appetite || '',
+      kyc_status: profile.kyc_status || '',
+    }
+  }
+
+  const loadCustomers = async () => {
+    setLoadingCustomers(true)
+    try {
+      const { data } = await api.get('/banker/customers')
+      setCustomers(data.customers || [])
+    } catch (error) {
+      setErr(error.response?.data?.detail || 'Failed to load customers')
+    } finally {
+      setLoadingCustomers(false)
+    }
+  }
+
+  useEffect(() => { loadCustomers() }, [])
+
   const submit = async () => {
+    if (!selectedCustomer) {
+      setErr('Please select a customer from the list below first.')
+      return
+    }
     setL(true); setErr(null)
     try {
       await api.post('/cases/', {
-        customer_id: form.customer_id || user?.id,
-        customer_profile: {
-          name: form.customer_name, email: form.customer_email,
-          phone: form.customer_phone, dob: form.customer_dob,
-          annual_income: parseFloat(form.annual_income) || 0,
-        },
+        customer_id: selectedCustomer.user_id || user?.id,
+        customer_profile: buildCustomerProfile(selectedCustomer),
         sum_assured: parseFloat(form.sum_assured) || 0,
         premium_budget: parseFloat(form.premium_budget) || 0,
         policy_tenure: parseInt(form.policy_tenure) || 20,
@@ -185,34 +230,173 @@ function NewCaseForm() {
     </Card>
   )
 
-  const fields = [
-    { label: 'Customer Name', key: 'customer_name', ph: 'Rahul Kumar' },
-    { label: 'Customer Email', key: 'customer_email', ph: 'rahul@email.com' },
-    { label: 'Phone', key: 'customer_phone', ph: '+91 9876543210' },
-    { label: 'Date of Birth', key: 'customer_dob', ph: '1990-05-15' },
-    { label: 'Annual Income (₹)', key: 'annual_income', ph: '1200000' },
-    { label: 'Sum Assured (₹)', key: 'sum_assured', ph: '5000000' },
-    { label: 'Premium Budget/yr (₹)', key: 'premium_budget', ph: '60000' },
-    { label: 'Policy Tenure (years)', key: 'policy_tenure', ph: '20' },
-    { label: 'Customer User ID', key: 'customer_id', ph: 'Leave blank to use self' },
-    { label: 'Insurance Purpose', key: 'purpose', ph: 'Family protection, tax saving…' },
+  const uploadCsv = async () => {
+    if (!csvFile) return
+    setCsvUploading(true)
+    setErr(null)
+    setOk(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', csvFile)
+      await api.post('/banker/customers/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setOk('CSV import started. Customers will receive their user ID and default password 852456 by email.')
+      setCsvFile(null)
+      await loadCustomers()
+    } catch (error) {
+      setErr(error.response?.data?.detail || 'CSV import failed')
+    } finally {
+      setCsvUploading(false)
+    }
+  }
+
+  const previewCsv = async () => {
+    if (!csvFile) return
+    setCsvUploading(true)
+    setPreviewData(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', csvFile)
+      const { data } = await api.post('/banker/customers/import/preview', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setPreviewData(data.preview || [])
+      setPreviewOpen(true)
+    } catch (error) {
+      setErr(error.response?.data?.detail || 'CSV preview failed')
+    } finally {
+      setCsvUploading(false)
+    }
+  }
+
+  const customerCols = [
+    { key: 'name', label: 'Name' },
+    { key: 'email', label: 'Email' },
+    { key: 'phone', label: 'Phone' },
+    { key: 'source_type', label: 'Source', render: (row) => <Badge label={row.source_type} /> },
+    { key: 'created_at', label: 'Added', render: (row) => row.created_at ? new Date(row.created_at).toLocaleString() : '—' },
+    {
+      key: 'actions',
+      label: '',
+      render: (row) => (
+        <Btn
+          size="sm"
+          variant={row.user_id === selectedCustomerId ? 'success' : 'secondary'}
+          onClick={() => setSelectedCustomerId(row.user_id)}
+        >
+          {row.user_id === selectedCustomerId ? 'Selected' : 'Select'}
+        </Btn>
+      ),
+    },
   ]
 
   return (
     <div>
-      <SectionHeader title="New Case" subtitle="Create a new insurance case for a customer" />
-      <Card className="max-w-2xl">
-        {err && <Alert type="error" message={err} />}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {fields.map(f => (
-            <Input key={f.key} label={f.label} value={form[f.key]} onChange={set(f.key)}
-              placeholder={f.ph} className={f.key === 'purpose' ? 'col-span-full' : ''} />
-          ))}
+      <SectionHeader title="New Case" subtitle="Upload customers by CSV, pick one below, then create the case" />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+        <Card>
+          <div className="flex items-center gap-2 mb-4">
+            <Upload size={16} />
+            <p className="font-semibold">CSV Customer Upload</p>
+          </div>
+          <p className="text-sm text-[#6b7280] mb-4">Upload customer rows to create logins automatically. Each imported customer receives the default password 852456 and will be required to change it on first login. See repository docs for CSV format.</p>
+          {err && <Alert type="error" message={err} />}
+          {ok && <Alert type="success" message={ok} />}
+          <input
+            type="file"
+            accept=".csv"
+            onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
+            className="block w-full text-sm text-[#6b7280] file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-[#6366f1] file:text-white file:text-xs file:font-semibold cursor-pointer mb-4"
+          />
+          <div className="flex gap-2">
+            <Btn onClick={previewCsv} disabled={!csvFile || csvUploading || previewOpen}>
+              {csvUploading ? 'Processing…' : 'Preview CSV'}
+            </Btn>
+            <Btn onClick={uploadCsv} disabled={!csvFile || csvUploading}>
+              {csvUploading ? 'Importing…' : 'Import CSV'}
+            </Btn>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="flex items-center gap-2 mb-4">
+            <Briefcase size={16} />
+            <p className="font-semibold">Case Details</p>
+          </div>
+          <div className="mb-4 rounded-lg border border-[#2a2f45] bg-[#0f1117] p-4">
+            <p className="text-xs font-semibold text-[#6b7280] mb-2">Selected customer</p>
+            {selectedCustomer ? (
+              <div className="space-y-1 text-sm">
+                <p className="font-semibold text-[#e8eaf0]">{selectedCustomer.name}</p>
+                <p className="text-[#6b7280]">{selectedCustomer.email}</p>
+                <p className="text-[#6b7280]">{selectedCustomer.phone || '—'}</p>
+                <p className="text-xs text-[#6b7280]">User ID: {selectedCustomer.user_id}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-[#6b7280]">Pick a customer from the list below to continue.</p>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input label="Sum Assured (₹)" value={form.sum_assured} onChange={set('sum_assured')} placeholder="5000000" />
+            <Input label="Premium Budget/yr (₹)" value={form.premium_budget} onChange={set('premium_budget')} placeholder="60000" />
+            <Input label="Policy Tenure (years)" value={form.policy_tenure} onChange={set('policy_tenure')} placeholder="20" />
+            <Input label="Insurance Purpose" value={form.purpose} onChange={set('purpose')} placeholder="Family protection, tax saving…" className="sm:col-span-2" />
+          </div>
+          <Btn onClick={submit} disabled={loading || !selectedCustomer} className="mt-5 w-full">
+            {loading ? 'Creating…' : 'Create Case & Trigger Workflow'}
+          </Btn>
+        </Card>
+      </div>
+
+      <Card>
+        <div className="flex flex-col gap-4">
+          <SectionHeader title="Customers" subtitle="Search by name, email, or phone" />
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#6b7280]" />
+            <input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search customers by name, email, or phone"
+              className="w-full bg-[#0f1117] border border-[#2a2f45] rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-[#6366f1]"
+            />
+          </div>
+          {loadingCustomers ? (
+            <Spinner />
+          ) : (
+            <DataTable columns={customerCols} rows={filteredCustomers} emptyText="No customers match your search." />
+          )}
         </div>
-        <Btn onClick={submit} disabled={loading} className="mt-5 w-full">
-          {loading ? 'Creating…' : 'Create Case & Trigger Workflow'}
-        </Btn>
       </Card>
+
+      {/* CSV Preview Modal */}
+      {previewOpen && (
+        <Modal open={previewOpen} onClose={() => setPreviewOpen(false)} title={`CSV Preview (${previewData?.length || 0} rows)`}>
+          <div className="space-y-3">
+            {previewData?.length ? (
+              <div className="max-h-96 overflow-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-[#6b7280]"><th className="p-2">#</th><th className="p-2">Name</th><th className="p-2">Email</th><th className="p-2">Phone</th><th className="p-2">Normalized JSON</th></tr>
+                  </thead>
+                  <tbody>
+                    {previewData.map((r, i) => (
+                      <tr key={i} className="border-t border-[#2a2f45]"><td className="p-2 align-top">{i + 1}</td>
+                        <td className="p-2 align-top">{r.normalized.name || r.raw.name || '—'}</td>
+                        <td className="p-2 align-top">{r.normalized.email || r.raw.email || '—'}</td>
+                        <td className="p-2 align-top">{r.normalized.phone || r.raw.phone || '—'}</td>
+                        <td className="p-2 align-top"><pre className="text-xs">{JSON.stringify(r.normalized, null, 2)}</pre></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-[#6b7280]">No rows parsed.</p>
+            )}
+            <div className="flex gap-2 mt-4">
+              <Btn onClick={() => { setPreviewOpen(false); setPreviewData(null) }}>Close</Btn>
+              <Btn variant="success" onClick={() => { setPreviewOpen(false); uploadCsv() }}>Import CSV</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

@@ -14,7 +14,9 @@ export default function LoginPage() {
     e.preventDefault();
     const res = await dispatch(loginUser({ email, password }));
     if (res.meta.requestStatus === "fulfilled") {
-      navigate("/dashboard");
+      const mustReset = res.payload?.user?.must_change_password
+      if (mustReset) navigate('/reset-password')
+      else navigate("/dashboard");
     }
   };
 
