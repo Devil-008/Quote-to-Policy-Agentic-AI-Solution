@@ -91,7 +91,9 @@ class ManualCustomerRequest(BaseModel):
 def _canonical_payload(raw: dict, normalized: Optional[dict] = None) -> dict:
     raw_data = _normalize_row_keys(raw)
     merged = _normalize_row_keys(normalized)
-    financial_goals = _first_value(merged, raw_data, aliases=_FIELD_ALIASES["financial_goals"]) or []
+    financial_goals = (
+        _first_value(merged, raw_data, aliases=_FIELD_ALIASES["financial_goals"]) or []
+    )
     if isinstance(financial_goals, str):
         financial_goals = [x.strip() for x in financial_goals.split(";") if x.strip()]
     return {
@@ -108,11 +110,15 @@ def _canonical_payload(raw: dict, normalized: Optional[dict] = None) -> dict:
         "annual_income": _first_value(
             merged, raw_data, aliases=_FIELD_ALIASES["annual_income"]
         ),
-        "dependents": _first_value(merged, raw_data, aliases=_FIELD_ALIASES["dependents"]),
+        "dependents": _first_value(
+            merged, raw_data, aliases=_FIELD_ALIASES["dependents"]
+        ),
         "risk_appetite": _first_value(
             merged, raw_data, aliases=_FIELD_ALIASES["risk_appetite"]
         ),
-        "kyc_status": _first_value(merged, raw_data, aliases=_FIELD_ALIASES["kyc_status"]),
+        "kyc_status": _first_value(
+            merged, raw_data, aliases=_FIELD_ALIASES["kyc_status"]
+        ),
         "financial_goals": financial_goals,
         "notes": _first_value(merged, raw_data, aliases=_FIELD_ALIASES["notes"]),
     }
@@ -246,7 +252,12 @@ async def _process_csv_import(file_bytes: bytes, filename: str, banker_id: str) 
         banker_repo = UserRepository(db)
         banker = await banker_repo.get_by_id(banker_id)
         if not banker:
-            return {"processed": len(rows), "imported": 0, "failed": len(rows), "errors": ["banker_not_found"]}
+            return {
+                "processed": len(rows),
+                "imported": 0,
+                "failed": len(rows),
+                "errors": ["banker_not_found"],
+            }
 
         imported = 0
         failed = 0
@@ -269,7 +280,12 @@ async def _process_csv_import(file_bytes: bytes, filename: str, banker_id: str) 
                 if len(errors) < 10:
                     errors.append("row_import_failed")
 
-        return {"processed": len(rows), "imported": imported, "failed": failed, "errors": errors}
+        return {
+            "processed": len(rows),
+            "imported": imported,
+            "failed": failed,
+            "errors": errors,
+        }
 
 
 @router.post("/customers/manual")
