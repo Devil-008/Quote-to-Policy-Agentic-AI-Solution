@@ -40,6 +40,11 @@ class BankerApproveRequest(BaseModel):
     remarks: Optional[str] = None
 
 
+class CustomerIntakeRequest(BaseModel):
+    customer_profile: dict
+    needs_analysis: Optional[dict] = None
+
+
 @router.post("/")
 async def create_case(
     body: CreateCaseRequest,
@@ -176,10 +181,39 @@ async def banker_approve(
     return {"message": "Case approved", "next_stage": "OTP_CONSENT"}
 
 
+@router.post("/{case_id}/customer-intake")
+async def customer_intake_update(
+    case_id: str,
+    body: CustomerIntakeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    r = await db.execute(select(Case).where(Case.id == case_id))
+    case = r.scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    if str(case.customer_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not your case")
+
+    await db.execute(
+        update(Case)
+        .where(Case.id == case_id)
+        .values(
+            customer_profile=body.customer_profile,
+            needs_analysis=body.needs_analysis or case.needs_analysis,
+            kyc_status="PROFILE_SUBMITTED",
+        )
+    )
+    await db.commit()
+    return {"message": "Customer intake saved", "kyc_status": "PROFILE_SUBMITTED"}
+
+
 def _s(c: Case) -> dict:
     return {
         "id": c.id,
         "case_number": c.case_number,
+        "customer_id": c.customer_id,
+        "banker_id": c.banker_id,
         "current_stage": (
             c.current_stage.value
             if hasattr(c.current_stage, "value")
@@ -188,6 +222,9 @@ def _s(c: Case) -> dict:
         "status": c.status.value if hasattr(c.status, "value") else c.status,
         "sum_assured": c.sum_assured,
         "premium_budget": c.premium_budget,
+        "kyc_status": c.kyc_status,
+        "esign_status": c.esign_status,
+        "profile_update_request": c.profile_update_request,
         "banker_approved": bool(c.banker_approved),
         "consent_given": bool(c.consent_given),
         "created_at": c.created_at.isoformat() if c.created_at else None,

@@ -2,7 +2,9 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useSelector } from 'react-redux'
 
 import LandingPage from './pages/LandingPage'
-import { LoginPage, RegisterPage } from './pages/auth/AuthPages'
+import LoginPage from './pages/LoginPage'
+import RegisterPage from './pages/RegisterPage'
+import ResetPassword from './pages/ResetPassword'
 import DashboardShell from './components/layout/DashboardShell'
 import SuperAdminDashboard from './pages/dashboard/SuperAdminDashboard'
 import BankerDashboard from './pages/dashboard/BankerDashboard'
@@ -14,12 +16,12 @@ import {
 } from './pages/dashboard/OtherDashboards'
 
 const ROLE_HOME = {
-  SUPER_ADMIN:  '/dashboard/admin',
-  BANKER:       '/dashboard/banker',
-  CUSTOMER:     '/dashboard/customer',
-  UNDERWRITER:  '/dashboard/underwriter',
-  COMPLIANCE:   '/dashboard/compliance',
-  OPS_ADMIN:    '/dashboard/ops',
+  SUPER_ADMIN: '/dashboard/admin',
+  BANKER: '/dashboard/banker',
+  CUSTOMER: '/dashboard/customer',
+  UNDERWRITER: '/dashboard/underwriter',
+  COMPLIANCE: '/dashboard/compliance',
+  OPS_ADMIN: '/dashboard/ops',
 }
 
 function Guard({ children }) {
@@ -37,9 +39,10 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         {/* Public */}
-        <Route path="/"         element={<LandingPage />} />
-        <Route path="/login"    element={<LoginPage />} />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/reset-password" element={<Guard><ResetPassword /></Guard>} />
 
         {/* Protected */}
         <Route path="/dashboard" element={<Guard><DashboardShell /></Guard>}>

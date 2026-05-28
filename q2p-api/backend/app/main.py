@@ -1,6 +1,7 @@
 """
 backend/app/main.py — FastAPI application entry point
 """
+
 import logging
 from contextlib import asynccontextmanager
 
@@ -11,7 +12,6 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from app.api.v1.router import api_router
 from app.core.database import engine, Base
 from app.middleware.logging_middleware import LoggingMiddleware
-from app.middleware.auth_middleware import AuthMiddleware
 from configs.base import BaseConfig
 
 logger = logging.getLogger(__name__)

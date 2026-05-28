@@ -5,7 +5,7 @@ import { toggleSidebar } from '../../store/slices/uiSlice'
 import {
   LayoutDashboard, Users, FileText, ShieldCheck, Stethoscope,
   BookOpen, Bell, LogOut, Menu, MessageSquare, ClipboardList,
-  Briefcase, Scale, CheckCircle, Home,
+  Briefcase, Scale, CheckCircle, Home, UserRound, BarChart3, CalendarClock,
 } from 'lucide-react'
 
 const NAV = {
@@ -20,7 +20,6 @@ const NAV = {
   BANKER: [
     { label: 'My Cases', icon: Briefcase, to: '/dashboard/banker' },
     { label: 'New Case', icon: FileText, to: '/dashboard/banker/new' },
-    { label: 'Customers', icon: Users, to: '/dashboard/banker/customers' },
     { label: 'Quotes', icon: Scale, to: '/dashboard/banker/quotes' },
     { label: 'Approvals', icon: CheckCircle, to: '/dashboard/banker/approvals' },
     { label: 'Notifications', icon: Bell, to: '/dashboard/banker/notifications' },
@@ -28,7 +27,10 @@ const NAV = {
   ],
   CUSTOMER: [
     { label: 'My Cases', icon: Home, to: '/dashboard/customer' },
+    { label: 'Profile & Needs', icon: UserRound, to: '/dashboard/customer/profile' },
+    { label: 'Quotes', icon: BarChart3, to: '/dashboard/customer/quotes' },
     { label: 'OTP Consent', icon: ShieldCheck, to: '/dashboard/customer/consent' },
+    { label: 'Medical', icon: CalendarClock, to: '/dashboard/customer/medical' },
     { label: 'My Policies', icon: FileText, to: '/dashboard/customer/policies' },
     { label: 'Documents', icon: ClipboardList, to: '/dashboard/customer/documents' },
   ],

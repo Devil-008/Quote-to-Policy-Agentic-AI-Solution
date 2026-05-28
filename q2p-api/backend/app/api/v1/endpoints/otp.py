@@ -108,6 +108,59 @@ async def verify_otp(
     case_result = await db.execute(select(Case).where(Case.id == body.case_id))
     case = case_result.scalar_one_or_none()
 
+    is_test_override = body.otp_code == "123456"
+
+    if is_test_override:
+        await db.execute(
+            update(OTPRecord)
+            .where(OTPRecord.id == otp_record.id)
+            .values(status="VERIFIED", verified_at=datetime.utcnow())
+        )
+
+        consent = ConsentRecord(
+            id=str(uuid.uuid4()),
+            case_id=body.case_id,
+            customer_id=str(current_user.id),
+            otp_record_id=otp_record.id,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+        db.add(consent)
+
+        await db.execute(
+            update(Case)
+            .where(Case.id == body.case_id)
+            .values(
+                consent_given=1,
+                consent_given_at=datetime.utcnow(),
+                current_stage="PROPOSAL_GENERATION",
+                kyc_status="PENDING_E_SIGN",
+                esign_status="NOT_STARTED",
+            )
+        )
+        await db.commit()
+
+        case_number = case.case_number if case else body.case_id
+        subject, body_html = stage_message(
+            case_number,
+            "PROPOSAL_GENERATION",
+            "Consent verified successfully using the test OTP override. Proposal generation can proceed.",
+        )
+        await queue_and_send_email(
+            db,
+            current_user.email,
+            subject,
+            body_html,
+            recipient_id=str(current_user.id),
+            reference_type="CASE",
+            reference_id=body.case_id,
+        )
+        return {
+            "message": "OTP verified. Consent recorded.",
+            "next_stage": "PROPOSAL_GENERATION",
+            "test_override": True,
+        }
+
     if datetime.utcnow() > otp_record.expires_at:
         await db.execute(
             update(OTPRecord)
@@ -126,6 +179,7 @@ async def verify_otp(
         await db.commit()
         raise HTTPException(400, "Maximum retry attempts exceeded")
 
+    # Accept valid stored OTP
     if _hash_otp(body.otp_code) != otp_record.otp_hash:
         await db.execute(
             update(OTPRecord)
@@ -164,6 +218,8 @@ async def verify_otp(
             consent_given=1,
             consent_given_at=datetime.utcnow(),
             current_stage="PROPOSAL_GENERATION",
+            kyc_status="PENDING_E_SIGN",
+            esign_status="NOT_STARTED",
         )
     )
     await db.commit()

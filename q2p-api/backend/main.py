@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import socket
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,15 +25,35 @@ os.makedirs(settings.LOG_PATH, exist_ok=True)
 os.makedirs(settings.CHROMA_PERSIST_DIR, exist_ok=True)
 
 
+def _port_is_available(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+        except OSError:
+            return False
+    return True
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Q2P Platform starting…")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    await ensure_compatibility()
-    start_scheduler()
+    app.state.db_ready = False
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        await ensure_compatibility()
+        app.state.db_ready = True
+        start_scheduler()
+    except Exception as exc:
+        logger.error(
+            "Database unavailable during startup; continuing without DB bootstrap: %s",
+            exc,
+            exc_info=True,
+        )
     yield
-    stop_scheduler()
+    if getattr(app.state, "db_ready", False):
+        stop_scheduler()
     logger.info("Q2P Platform stopped.")
 
 
@@ -58,6 +79,11 @@ app.include_router(api_router)
 
 if __name__ == "__main__":
     import uvicorn
+
+    if not _port_is_available(settings.APP_HOST, settings.APP_PORT):
+        raise SystemExit(
+            f"Port {settings.APP_PORT} is already in use. Stop the existing backend process or set APP_PORT to a free port."
+        )
 
     uvicorn.run(
         "main:app",

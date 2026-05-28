@@ -8,7 +8,8 @@ class UserRepository:
         self.db = db
 
     async def get_by_email(self, email: str):
-        r = await self.db.execute(select(User).where(User.email == email))
+        normalized = (email or "").strip().lower()
+        r = await self.db.execute(select(User).where(User.email == normalized))
         return r.scalar_one_or_none()
 
     async def get_by_id(self, user_id: str):

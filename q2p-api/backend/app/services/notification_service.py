@@ -95,7 +95,7 @@ def stage_message(case_number: str, stage: str, summary: str) -> tuple[str, str]
 
 
 def customer_invite_message(
-    name: str, email: str, temp_password: str
+    name: str, email: str, user_id: str, temp_password: str
 ) -> tuple[str, str]:
     subject = "Your Q2P customer profile is ready"
     body = f"""
@@ -103,8 +103,10 @@ def customer_invite_message(
                 background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;">
         <h2 style="margin:0 0 12px;color:#111827;">Welcome to Q2P</h2>
         <p style="margin:0 0 8px;color:#374151;">Hello {name}, your profile has been created for <strong>{email}</strong>.</p>
+        <p style="margin:0 0 8px;color:#374151;">User ID: <strong>{user_id}</strong></p>
         <p style="margin:0 0 8px;color:#374151;">Temporary password: <strong>{temp_password}</strong></p>
-        <p style="margin:0;color:#6b7280;">Please sign in and complete the onboarding flow.</p>
+        <p style="margin:0 0 8px;color:#374151;">For your security you must change your password on first login.</p>
+        <p style="margin:0;color:#6b7280;">Sign in at <a href="{"/"}">Q2P</a> and complete the onboarding flow. If you have any issues contact your banker.</p>
     </div>
     """
     return subject, body
