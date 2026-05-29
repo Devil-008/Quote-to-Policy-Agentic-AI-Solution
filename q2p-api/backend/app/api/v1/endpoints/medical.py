@@ -9,7 +9,7 @@ from sqlalchemy import select, update
 
 from backend.app.core.database import get_db
 from backend.app.core.security import get_current_user, require_roles
-from backend.app.models.all_models import MedicalRequest, MedicalDocument, User, Case
+from backend.app.models.all_models import MedicalRequest, MedicalDocument, User, Case, CaseStage
 from configs.base import settings
 
 router = APIRouter(prefix="/medical", tags=["medical"])
@@ -49,6 +49,11 @@ async def create_medical_req(
         requirements=body.requirements,
     )
     db.add(req)
+    await db.execute(
+        update(Case)
+        .where(Case.id == body.case_id)
+        .values(current_stage=CaseStage.MEDICAL_COORDINATION)
+    )
     await db.commit()
     await db.refresh(req)
     return {"id": req.id, "message": "Medical request created"}
@@ -67,6 +72,11 @@ async def create_customer_medical_req(
         requirements=body.requirements,
     )
     db.add(req)
+    await db.execute(
+        update(Case)
+        .where(Case.id == body.case_id)
+        .values(current_stage=CaseStage.MEDICAL_COORDINATION)
+    )
     await db.commit()
     await db.refresh(req)
     return {"id": req.id, "message": "Customer medical request created"}
@@ -212,6 +222,11 @@ async def complete_medical(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_roles("OPS_ADMIN", "SUPER_ADMIN")),
 ):
+    r = await db.execute(select(MedicalRequest).where(MedicalRequest.id == req_id))
+    req = r.scalar_one_or_none()
+    if not req:
+        raise HTTPException(404, "Medical request not found")
+
     await db.execute(
         update(MedicalRequest)
         .where(MedicalRequest.id == req_id)
@@ -220,6 +235,12 @@ async def complete_medical(
             reviewed_by=str(current_user.id),
             reviewed_at=datetime.utcnow(),
         )
+    )
+    
+    await db.execute(
+        update(Case)
+        .where(Case.id == req.case_id)
+        .values(current_stage=CaseStage.UNDERWRITING)
     )
     await db.commit()
     return {"message": "Medical request completed"}

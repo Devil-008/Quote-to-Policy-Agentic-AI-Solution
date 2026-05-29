@@ -16,7 +16,9 @@ async def _job():
         async with AsyncSessionLocal() as db:
             await run_escalation_check(db)
     except (OperationalError, SQLAlchemyError, OSError) as exc:
-        logger.warning("Skipping escalation check because the database is unavailable: %s", exc)
+        logger.warning(
+            "Skipping escalation check because the database is unavailable: %s", exc
+        )
     except Exception:
         logger.exception("Unexpected failure while running escalation check")
 
@@ -29,7 +31,9 @@ def start_scheduler():
         replace_existing=True,
     )
     scheduler.start()
-    logger.info(f"Escalation scheduler started (every {settings.ESCALATION_INTERVAL_MINUTES} min)")
+    logger.info(
+        f"Escalation scheduler started (every {settings.ESCALATION_INTERVAL_MINUTES} min)"
+    )
 
 
 def stop_scheduler():

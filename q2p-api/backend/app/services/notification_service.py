@@ -81,6 +81,26 @@ async def queue_and_send_email(
     return log
 
 
+async def queue_and_send_email_batch(
+    db: AsyncSession,
+    items: list[dict],
+) -> list[NotificationLog]:
+    import uuid
+    logs = []
+    for item in items:
+        if "status" not in item:
+            item["status"] = "PENDING"
+        if "notification_type" not in item:
+            item["notification_type"] = "EMAIL"
+        log = NotificationLog(id=str(uuid.uuid4()), **item)
+        db.add(log)
+        logs.append(log)
+    await db.commit()
+    for log in logs:
+        asyncio.create_task(_deliver_notification(log.id))
+    return logs
+
+
 def stage_message(case_number: str, stage: str, summary: str) -> tuple[str, str]:
     subject = f"Q2P Update - {case_number} moved to {stage}"
     body = f"""
@@ -103,8 +123,8 @@ def customer_invite_message(
                 background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;">
         <h2 style="margin:0 0 12px;color:#111827;">Welcome to Q2P</h2>
         <p style="margin:0 0 8px;color:#374151;">Hello {name}, your profile has been created for <strong>{email}</strong>.</p>
-        <p style="margin:0 0 8px;color:#374151;">User ID: <strong>{user_id}</strong></p>
-        <p style="margin:0 0 8px;color:#374151;">Temporary password: <strong>{temp_password}</strong></p>
+        <p style="margin:0 0 8px;color:#374151;">Username / Email: <strong>{email}</strong></p>
+        <p style="margin:0 0 8px;color:#374151;">Temporary Password: <strong>{temp_password}</strong></p>
         <p style="margin:0 0 8px;color:#374151;">For your security you must change your password on first login.</p>
         <p style="margin:0;color:#6b7280;">Sign in at <a href="{"/"}">Q2P</a> and complete the onboarding flow. If you have any issues contact your banker.</p>
     </div>
