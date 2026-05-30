@@ -111,14 +111,44 @@ function CustomerProfileNeeds() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState(null)
   const [error, setError] = useState(null)
-
+const [customers, setCustomers] = useState()
+const [loadingCustomers, setLoadingCustomers] = useState(false)
   useEffect(() => {
-    api.get('/cases/').then(r => {
+     api.get('/cases/').then(r => {
       const ownCases = (r.data.cases || []).filter(c => c.customer_id === user?.id)
       setCases(ownCases)
       if (ownCases.length > 0) setSelectedCaseId(ownCases[0].id)
     }).finally(() => setLoading(false))
   }, [user])
+ 
+  const loadCustomers = async () => {
+  setLoadingCustomers(true)
+  try {
+    const { data } = await api.get('/banker/customers/logged-in-customer')
+    const customerData = data.customer || {}
+    setCustomers(customerData)
+    console.log("Loaded customers2:", customerData)
+        setProfileEditable(false)
+    setProfile({
+      name: customerData.normalized_payload.name || user?.name || '',
+      email: customerData.normalized_payload.email || user?.email || '',
+      phone: customerData.normalized_payload.phone || '',
+      date_of_birth: customerData.normalized_payload.date_of_birth || customerData.dob || '',
+      notes:` Customer ${customerData.normalized_payload.name || 'N/A'} from ${customerData.normalized_payload.city || 'Unknown City'} is a ${customerData.normalized_payload.age || 'N/A'} year old ${customerData.normalized_payload.gender || 'N/A'} customer working as ${customerData.normalized_payload.occupation || 'N/A'}.
+      Her annual income is approximately ₹${customerData.normalized_payload.annual_income || '0'} with ${customerData.normalized_payload.dependents || '0'} dependents and a ${customerData.normalized_payload.risk_appetite || 'N/A'} risk appetite.
+      The customer is ${customerData.normalized_payload.marital_status || 'N/A'}, is a ${customerData.normalized_payload.smoker === 'Yes' ? 'smoker' : 'non-smoker'}, and ${ customerData.normalized_payload.existing_insurance === 'Yes' ? 'currently has' : 'currently does not have any'} existing insurance coverage.`
+    })
+  } catch (error) {
+    console.error('Error loading customers:', error)
+    setError(error.response?.data?.detail || 'Failed to load customers')
+  } finally {
+    setLoadingCustomers(false)
+  }
+}
+
+useEffect(() => {
+  loadCustomers()
+}, [])
 
   useEffect(() => {
     const selected = cases.find(c => c.id === selectedCaseId)
@@ -126,15 +156,15 @@ function CustomerProfileNeeds() {
     const currentProfile = selected.customer_profile || {}
     const currentNeeds = selected.needs_analysis || {}
     setBankerProfileSnapshot(currentProfile)
-    setProfileEditable(false)
-    setProfile({
-      ...currentProfile,
-      name: currentProfile.name || user?.name || '',
-      email: currentProfile.email || user?.email || '',
-      phone: currentProfile.phone || '',
-      date_of_birth: currentProfile.date_of_birth || currentProfile.dob || '',
-      notes: currentProfile.notes || '',
-    })
+    // setProfileEditable(false)
+    // setProfile({
+    //   ...currentProfile,
+    //   name: currentProfile.name || user?.name || '',
+    //   email: currentProfile.email || user?.email || '',
+    //   phone: currentProfile.phone || '',
+    //   date_of_birth: currentProfile.date_of_birth || currentProfile.dob || '',
+    //   notes: currentProfile.notes || '',
+    // })
     setNeeds({
       purpose: currentNeeds.purpose || '',
       term: currentNeeds.term || '',

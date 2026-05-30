@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.database import AsyncSessionLocal, get_db
 from backend.app.core.security import get_password_hash, require_roles
+from backend.app.core.security import get_current_user
 from backend.app.models.all_models import CustomerIntakeRecord, User, UserRole
 from backend.app.repositories.user_repository import UserRepository
 from backend.app.services.notification_service import (
@@ -387,3 +388,32 @@ async def list_customers(
             }
         )
     return {"customers": items}
+
+
+@router.get("/customers/logged-in-customer")
+async def my_customer_intake(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(CustomerIntakeRecord)
+        .where(CustomerIntakeRecord.user_id == str(current_user.id))
+        .order_by(CustomerIntakeRecord.created_at.desc())
+    )
+
+    intake = result.scalars().first()
+
+    if not intake:
+        raise HTTPException(status_code=404, detail="Customer intake not found")
+
+    return {
+        "customer": {
+            "intake_id": intake.id,
+            "user_id": intake.user_id,
+            "source_type": intake.source_type,
+            "status": intake.status,
+            "source_filename": intake.source_filename,
+            "normalized_payload": intake.normalized_payload,
+            "created_at": intake.created_at.isoformat() if intake.created_at else None,
+        }
+    }
