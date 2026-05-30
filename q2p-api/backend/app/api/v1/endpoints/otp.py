@@ -7,7 +7,7 @@ from sqlalchemy import select, update
 
 from backend.app.core.database import get_db
 from backend.app.core.security import get_current_user
-from backend.app.models.all_models import OTPRecord, ConsentRecord, Case, User
+from backend.app.models.all_models import OTPRecord, ConsentRecord, Case, User, Policy, Quote
 from backend.app.repositories.quote_policy_otp_repository import NotificationRepository
 from backend.app.services.notification_service import (
     queue_and_send_email,
@@ -127,6 +127,36 @@ async def verify_otp(
         )
         db.add(consent)
 
+        # Auto-create policy draft from ranked #1 quote
+        quote_result = await db.execute(
+            select(Quote)
+            .where(Quote.case_id == body.case_id)
+            .order_by(Quote.ai_rank.asc())
+        )
+        top_quote = quote_result.scalars().first()
+        if top_quote:
+            existing_policy = await db.execute(
+                select(Policy).where(Policy.case_id == body.case_id)
+            )
+            if not existing_policy.scalar_one_or_none():
+                policy_num = f"POL-{datetime.utcnow().strftime('%Y%m%d')}-{random.randint(1000, 9999)}"
+                policy = Policy(
+                    id=str(uuid.uuid4()),
+                    case_id=body.case_id,
+                    quote_id=top_quote.id,
+                    customer_id=str(current_user.id),
+                    policy_number=policy_num,
+                    insurer_code=top_quote.insurer_code,
+                    insurer_name=top_quote.insurer_name,
+                    product_name=top_quote.product_name,
+                    product_code=top_quote.product_code,
+                    annual_premium=top_quote.annual_premium,
+                    sum_assured=top_quote.sum_assured,
+                    policy_tenure=top_quote.policy_tenure,
+                    status="DRAFT",
+                )
+                db.add(policy)
+
         await db.execute(
             update(Case)
             .where(Case.id == body.case_id)
@@ -209,6 +239,36 @@ async def verify_otp(
         user_agent=request.headers.get("user-agent"),
     )
     db.add(consent)
+
+    # Auto-create policy draft from ranked #1 quote
+    quote_result = await db.execute(
+        select(Quote)
+        .where(Quote.case_id == body.case_id)
+        .order_by(Quote.ai_rank.asc())
+    )
+    top_quote = quote_result.scalars().first()
+    if top_quote:
+        existing_policy = await db.execute(
+            select(Policy).where(Policy.case_id == body.case_id)
+        )
+        if not existing_policy.scalar_one_or_none():
+            policy_num = f"POL-{datetime.utcnow().strftime('%Y%m%d')}-{random.randint(1000, 9999)}"
+            policy = Policy(
+                id=str(uuid.uuid4()),
+                case_id=body.case_id,
+                quote_id=top_quote.id,
+                customer_id=str(current_user.id),
+                policy_number=policy_num,
+                insurer_code=top_quote.insurer_code,
+                insurer_name=top_quote.insurer_name,
+                product_name=top_quote.product_name,
+                product_code=top_quote.product_code,
+                annual_premium=top_quote.annual_premium,
+                sum_assured=top_quote.sum_assured,
+                policy_tenure=top_quote.policy_tenure,
+                status="DRAFT",
+            )
+            db.add(policy)
 
     # Advance case stage
     await db.execute(

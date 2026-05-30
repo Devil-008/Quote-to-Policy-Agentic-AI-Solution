@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import { fetchCases } from '../../store/slices/casesSlice'
@@ -12,6 +12,72 @@ const STAGES = [
   'PROPOSAL_GENERATION', 'MEDICAL_COORDINATION', 'UNDERWRITING', 'POLICY_ISSUANCE',
   'EXCEPTION_HANDLING', 'ESCALATION', 'COMPLETED'
 ]
+
+function CsvDropzone({ file, onFileChange, onClear, description, label = 'CSV Upload', disabled = false }) {
+  const inputRef = useRef(null)
+
+  const openPicker = () => {
+    if (!disabled) inputRef.current?.click()
+  }
+
+  const handleDrop = (event) => {
+    event.preventDefault()
+    if (disabled) return
+    const dropped = event.dataTransfer.files?.[0]
+    if (dropped) onFileChange(dropped)
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={openPicker}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          openPicker()
+        }
+      }}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={handleDrop}
+      className={`group rounded-2xl border border-dashed bg-[linear-gradient(180deg,#15192a_0%,#101423_100%)] p-4 transition-colors ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:border-[#6366f1] hover:bg-[#15192f]'}`}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".csv"
+        className="hidden"
+        onChange={(event) => onFileChange(event.target.files?.[0] || null)}
+      />
+      <div className="flex items-start gap-3">
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#6366f1]/15 text-[#7c83ff]">
+          <Upload size={18} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-[#e8eaf0]">{label}</p>
+          <p className="mt-1 text-sm text-[#6b7280]">{description}</p>
+          <p className="mt-2 text-xs text-[#93a1c6]">Drop a CSV file here or click to browse.</p>
+        </div>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-[#2a2f45] bg-[#0f1117] px-3 py-2 text-sm">
+        <span className="text-[#6b7280]">Selected file:</span>
+        <span className="truncate font-medium text-[#e8eaf0]">{file?.name || 'No file selected'}</span>
+        {file && onClear && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              onClear()
+            }}
+            className="ml-auto rounded-lg border border-[#2a2f45] px-3 py-1 text-xs font-semibold text-[#e8eaf0] hover:bg-[#1e2235]"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ── Case List ─────────────────────────────────────────────────────────
 function CaseList() {
@@ -152,8 +218,6 @@ function NewCaseForm() {
   const [loadingCustomers, setLoadingCustomers] = useState(true)
   const [csvFile, setCsvFile] = useState(null)
   const [csvUploading, setCsvUploading] = useState(false)
-  const [previewData, setPreviewData] = useState(null)
-  const [previewOpen, setPreviewOpen] = useState(false)
   const [form, setForm] = useState({
     sum_assured: '', premium_budget: '', policy_tenure: '20', purpose: '',
   })
@@ -173,17 +237,19 @@ function NewCaseForm() {
   })
 
   const buildCustomerProfile = (customer) => {
-    const profile = customer?.normalized_payload || {}
+    const raw = customer?.raw_payload || {}
+    const normalized = customer?.normalized_payload || {}
     return {
-      ...profile,
-      name: customer?.name || profile.name || '',
-      email: customer?.email || profile.email || '',
-      phone: customer?.phone || profile.phone || '',
-      dob: profile.date_of_birth || profile.dob || '',
-      annual_income: Number(profile.annual_income) || 0,
-      dependents: Number(profile.dependents) || 0,
-      risk_appetite: profile.risk_appetite || '',
-      kyc_status: profile.kyc_status || '',
+      ...raw,
+      ...normalized,
+      name: customer?.name || normalized.name || raw.name || '',
+      email: customer?.email || normalized.email || raw.email || '',
+      phone: customer?.phone || normalized.phone || raw.phone || '',
+      dob: normalized.date_of_birth || normalized.dob || raw.date_of_birth || raw.dob || '',
+      annual_income: Number(normalized.annual_income) || Number(raw.annual_income) || 0,
+      dependents: Number(normalized.dependents) || Number(raw.dependents) || 0,
+      risk_appetite: normalized.risk_appetite || raw.risk_appetite || '',
+      kyc_status: normalized.kyc_status || raw.kyc_status || '',
     }
   }
 
@@ -238,29 +304,12 @@ function NewCaseForm() {
     try {
       const fd = new FormData()
       fd.append('file', csvFile)
-      await api.post('/banker/customers/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      setOk('CSV import started. Customers will receive their user ID and default password 852456 by email.')
+      const { data } = await api.post('/banker/customers/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setOk(`CSV import completed. Imported ${data.imported || 0} customer(s).`)
       setCsvFile(null)
       await loadCustomers()
     } catch (error) {
       setErr(error.response?.data?.detail || 'CSV import failed')
-    } finally {
-      setCsvUploading(false)
-    }
-  }
-
-  const previewCsv = async () => {
-    if (!csvFile) return
-    setCsvUploading(true)
-    setPreviewData(null)
-    try {
-      const fd = new FormData()
-      fd.append('file', csvFile)
-      const { data } = await api.post('/banker/customers/import/preview', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      setPreviewData(data.preview || [])
-      setPreviewOpen(true)
-    } catch (error) {
-      setErr(error.response?.data?.detail || 'CSV preview failed')
     } finally {
       setCsvUploading(false)
     }
@@ -296,20 +345,17 @@ function NewCaseForm() {
             <Upload size={16} />
             <p className="font-semibold">CSV Customer Upload</p>
           </div>
-          <p className="text-sm text-[#6b7280] mb-4">Upload customer rows to create logins automatically. Each imported customer receives the default password 852456 and will be required to change it on first login. See repository docs for CSV format.</p>
+          <p className="text-sm text-[#6b7280] mb-4">Upload customer rows to create logins automatically. Each imported customer receives the default password 852456 and will be required to change it on first login.</p>
           {err && <Alert type="error" message={err} />}
           {ok && <Alert type="success" message={ok} />}
-          <input
-            type="file"
-            accept=".csv"
-            onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
-            className="block w-full text-sm text-[#6b7280] file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-[#6366f1] file:text-white file:text-xs file:font-semibold cursor-pointer mb-4"
+          <CsvDropzone
+            file={csvFile}
+            onFileChange={setCsvFile}
+            onClear={() => setCsvFile(null)}
+            description="Use a CSV with name and email columns. Common aliases like customer_name, customer_email, and phone_number also work."
           />
-          <div className="flex gap-2">
-            <Btn onClick={previewCsv} disabled={!csvFile || csvUploading || previewOpen}>
-              {csvUploading ? 'Processing…' : 'Preview CSV'}
-            </Btn>
-            <Btn onClick={uploadCsv} disabled={!csvFile || csvUploading}>
+          <div className="mt-4 flex gap-2">
+            <Btn onClick={uploadCsv} disabled={!csvFile || csvUploading} className="flex-1">
               {csvUploading ? 'Importing…' : 'Import CSV'}
             </Btn>
           </div>
@@ -365,38 +411,6 @@ function NewCaseForm() {
         </div>
       </Card>
 
-      {/* CSV Preview Modal */}
-      {previewOpen && (
-        <Modal open={previewOpen} onClose={() => setPreviewOpen(false)} title={`CSV Preview (${previewData?.length || 0} rows)`}>
-          <div className="space-y-3">
-            {previewData?.length ? (
-              <div className="max-h-96 overflow-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs text-[#6b7280]"><th className="p-2">#</th><th className="p-2">Name</th><th className="p-2">Email</th><th className="p-2">Phone</th><th className="p-2">Normalized JSON</th></tr>
-                  </thead>
-                  <tbody>
-                    {previewData.map((r, i) => (
-                      <tr key={i} className="border-t border-[#2a2f45]"><td className="p-2 align-top">{i + 1}</td>
-                        <td className="p-2 align-top">{r.normalized.name || r.raw.name || '—'}</td>
-                        <td className="p-2 align-top">{r.normalized.email || r.raw.email || '—'}</td>
-                        <td className="p-2 align-top">{r.normalized.phone || r.raw.phone || '—'}</td>
-                        <td className="p-2 align-top"><pre className="text-xs">{JSON.stringify(r.normalized, null, 2)}</pre></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-sm text-[#6b7280]">No rows parsed.</p>
-            )}
-            <div className="flex gap-2 mt-4">
-              <Btn onClick={() => { setPreviewOpen(false); setPreviewData(null) }}>Close</Btn>
-              <Btn variant="success" onClick={() => { setPreviewOpen(false); uploadCsv() }}>Import CSV</Btn>
-            </div>
-          </div>
-        </Modal>
-      )}
     </div>
   )
 }
@@ -624,8 +638,8 @@ function CustomerIntake() {
     try {
       const fd = new FormData()
       fd.append('file', csvFile)
-      await api.post('/banker/customers/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      setOk('CSV import completed and notifications were sent.')
+      const { data } = await api.post('/banker/customers/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setOk(`CSV import completed. Imported ${data.imported || 0} customer(s).`)
       setCsvFile(null)
       load()
     } catch (e) {
@@ -653,23 +667,23 @@ function CustomerIntake() {
             <Upload size={16} />
             <p className="font-semibold">CSV Import</p>
           </div>
-          <p className="text-sm text-[#6b7280] mb-4">Columns like name, email, phone, dob, annual_income, dependents, risk_appetite, kyc_status work well.</p>
+          <p className="text-sm text-[#6b7280] mb-4">Drop a CSV file to import customers. Required columns are name and email; aliases like customer_name, customer_email, and phone_number are accepted.</p>
           {err && <Alert type="error" message={err} />}
           {ok && <Alert type="success" message={ok} />}
-          <input
-            type="file"
-            accept=".csv"
-            onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
-            className="block w-full text-sm text-[#6b7280] file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-[#6366f1] file:text-white file:text-xs file:font-semibold cursor-pointer mb-4"
+          <CsvDropzone
+            file={csvFile}
+            onFileChange={setCsvFile}
+            onClear={() => setCsvFile(null)}
+            description="Drag and drop a CSV here or click to browse."
           />
-          <Btn onClick={uploadCsv} disabled={!csvFile || csvUploading}>
+          <Btn onClick={uploadCsv} disabled={!csvFile || csvUploading} className="mt-4 w-full">
             {csvUploading ? 'Importing…' : 'Import CSV'}
           </Btn>
         </Card>
 
         <Card>
           <div className="flex items-center gap-2 mb-4">
-            <Users size={16} />
+            <FileText size={16} />
             <p className="font-semibold">Manual Add</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

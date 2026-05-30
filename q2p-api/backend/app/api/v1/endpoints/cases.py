@@ -220,6 +220,8 @@ def _s(c: Case) -> dict:
             else c.current_stage
         ),
         "status": c.status.value if hasattr(c.status, "value") else c.status,
+        "customer_profile": c.customer_profile,
+        "needs_analysis": c.needs_analysis,
         "sum_assured": c.sum_assured,
         "premium_budget": c.premium_budget,
         "kyc_status": c.kyc_status,
