@@ -18,12 +18,11 @@ logger = logging.getLogger(__name__)
 
 # ─── Local ChromaDB client (no Docker needed) ────────────────────────
 _chroma_client = None
-_collection    = None
 _embedder      = None
 
 
 def _get_chroma():
-    global _chroma_client, _collection
+    global _chroma_client
     if _chroma_client is None:
         persist_dir = settings.CHROMA_PERSIST_DIR
         os.makedirs(persist_dir, exist_ok=True)
@@ -31,11 +30,11 @@ def _get_chroma():
             path=persist_dir,
             settings=ChromaSettings(anonymized_telemetry=False),
         )
-        _collection = _chroma_client.get_or_create_collection(
-            name=settings.CHROMA_COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"},
-        )
-    return _chroma_client, _collection
+    collection = _chroma_client.get_or_create_collection(
+        name=settings.CHROMA_COLLECTION_NAME,
+        metadata={"hnsw:space": "cosine"},
+    )
+    return _chroma_client, collection
 
 
 def _get_embedder():
@@ -198,8 +197,26 @@ async def delete_document(doc_id: str):
     """Delete all chunks for a document from ChromaDB and clean up Graph DB."""
     # ChromaDB cleanup
     _, col = _get_chroma()
-    col.delete(where={"doc_id": doc_id})
-    logger.info(f"Deleted document {doc_id} from ChromaDB")
+    try:
+        # Fetch all matching IDs first to delete in batches (avoids the 166 batch size limit during delete)
+        res = col.get(where={"doc_id": doc_id}, include=[])
+        ids_to_delete = res.get("ids", [])
+        if ids_to_delete:
+            batch_size = 100
+            for i in range(0, len(ids_to_delete), batch_size):
+                batch_ids = ids_to_delete[i:i + batch_size]
+                col.delete(ids=batch_ids)
+            logger.info(f"Deleted {len(ids_to_delete)} chunks for document {doc_id} from ChromaDB")
+        else:
+            logger.info(f"No chunks found in ChromaDB for document {doc_id}")
+    except Exception as e:
+        logger.warning(f"Error during ChromaDB document deletion: {e}", exc_info=True)
+        # Fallback to direct delete if get failed
+        try:
+            col.delete(where={"doc_id": doc_id})
+        except Exception as fe:
+            logger.error(f"ChromaDB fallback delete failed: {fe}", exc_info=True)
+            raise fe
 
     # ArangoDB cleanup
     try:
