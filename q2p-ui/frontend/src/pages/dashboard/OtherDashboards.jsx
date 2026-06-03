@@ -4,6 +4,7 @@ import { useSelector } from 'react-redux'
 import { StatCard, DataTable, Badge, Card, SectionHeader, Btn, Alert, Spinner } from '../../components/common'
 import { Home, FileText, ShieldCheck, Clock, ClipboardList, Stethoscope, Bell, UserRound, BarChart3, CalendarClock } from 'lucide-react'
 import api from '../../services/api'
+import { KnowledgeBase, RAGChat } from '../../components/common/RAGComponents'
 
 // ════════════════════════════════════════════════════════════════════
 // CUSTOMER DASHBOARD
@@ -778,6 +779,7 @@ export function CustomerDashboard() {
       <Route path="policies" element={<CustomerPolicies />} />
       <Route path="documents" element={<CustomerDocuments />} />
       <Route path="medical" element={<CustomerMedical />} />
+      <Route path="rag-chat" element={<RAGChat title="Customer RAG Helpdesk" placeholder="Ask questions about your coverages, rules, or claims..." />} />
     </Routes>
   )
 }
@@ -862,7 +864,14 @@ function UWQueue() {
 }
 
 export function UnderwriterDashboard() {
-  return <Routes><Route index element={<UWQueue />} /><Route path="decisions" element={<UWQueue />} /></Routes>
+  return (
+    <Routes>
+      <Route index element={<UWQueue />} />
+      <Route path="decisions" element={<UWQueue />} />
+      <Route path="kb" element={<KnowledgeBase />} />
+      <Route path="rag-chat" element={<RAGChat title="Underwriting RAG Assistant" placeholder="Ask about guidelines, medical grids, financial limits..." />} />
+    </Routes>
+  )
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -919,6 +928,8 @@ export function ComplianceDashboard() {
       <Route path="exceptions" element={<ComplianceExceptions />} />
       <Route path="consents" element={<ComplianceConsents />} />
       <Route path="audit" element={<Card className="text-center py-10 text-[#6b7280]">See Admin → Audit Logs for full trail.</Card>} />
+      <Route path="kb" element={<KnowledgeBase />} />
+      <Route path="rag-chat" element={<RAGChat title="Compliance RAG Auditor" placeholder="Ask about IRDAI regulations, KYC compliance checklist..." />} />
     </Routes>
   )
 }
@@ -985,6 +996,8 @@ export function OpsAdminDashboard() {
       <Route index element={<MedicalQueue />} />
       <Route path="escalations" element={<OpsEscalations />} />
       <Route path="sla" element={<OpsEscalations />} />
+      <Route path="kb" element={<KnowledgeBase />} />
+      <Route path="rag-chat" element={<RAGChat title="Operations RAG Helper" placeholder="Ask about SLA terms, coordination workflows..." />} />
     </Routes>
   )
 }

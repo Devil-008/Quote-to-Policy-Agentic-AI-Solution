@@ -5,6 +5,7 @@ import { fetchCases } from '../../store/slices/casesSlice'
 import { StatCard, DataTable, Badge, Card, SectionHeader, Btn, Input, Alert, Spinner, Modal } from '../../components/common'
 import { Briefcase, Clock, CheckCircle, FileText, Bell, Upload, Search } from 'lucide-react'
 import api from '../../services/api'
+import { KnowledgeBase, RAGChat } from '../../components/common/RAGComponents'
 
 const STAGES = [
   'CUSTOMER_INTAKE', 'NEEDS_ANALYSIS', 'SUITABILITY_VALIDATION', 'QUOTE_RETRIEVAL',
@@ -521,51 +522,7 @@ function BankerApprovals() {
   )
 }
 
-// ── RAG Chat (Banker) ─────────────────────────────────────────────────
-function RAGChatBanker() {
-  const [messages, setMessages] = useState([])
-  const [input, setInput] = useState('')
-  const [sessionId, setSessionId] = useState(null)
-  const [loading, setL] = useState(false)
 
-  const send = async () => {
-    if (!input.trim()) return
-    setMessages(m => [...m, { role: 'user', content: input }])
-    setInput(''); setL(true)
-    try {
-      const { data } = await api.post('/rag/chat', { message: input, session_id: sessionId })
-      setSessionId(data.session_id)
-      setMessages(m => [...m, { role: 'assistant', content: data.response, sources: data.sources }])
-    } catch (e) {
-      setMessages(m => [...m, { role: 'assistant', content: 'Error: could not get response' }])
-    } finally { setL(false) }
-  }
-
-  return (
-    <div>
-      <SectionHeader title="Insurance Knowledge Chat" subtitle="Ask about products, rules, or procedures" />
-      <Card className="flex flex-col" style={{ height: '60vh' }}>
-        <div className="flex-1 overflow-y-auto space-y-3 mb-4">
-          {messages.length === 0 && <p className="text-center text-[#6b7280] text-sm mt-10">Start asking about insurance knowledge…</p>}
-          {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[75%] rounded-xl px-4 py-3 text-sm ${m.role === 'user' ? 'bg-[#6366f1] text-white' : 'bg-[#1e2235] border border-[#2a2f45]'}`}>
-                {m.content}
-              </div>
-            </div>
-          ))}
-          {loading && <div className="flex justify-start"><div className="bg-[#1e2235] border border-[#2a2f45] rounded-xl px-4 py-3 text-sm text-[#6b7280]">Thinking…</div></div>}
-        </div>
-        <div className="flex gap-3">
-          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
-            placeholder="What is the difference between HDFC and LIC term plans?"
-            className="flex-1 bg-[#0f1117] border border-[#2a2f45] rounded-lg px-4 py-2.5 text-sm outline-none focus:border-[#6366f1]" />
-          <Btn onClick={send} disabled={loading || !input.trim()}>Send</Btn>
-        </div>
-      </Card>
-    </div>
-  )
-}
 
 function CustomerIntake() {
   const [customers, setCustomers] = useState([])
@@ -769,7 +726,8 @@ export default function BankerDashboard() {
       <Route path="customers" element={<CustomerIntake />} />
       <Route path="quotes" element={<QuoteComparison />} />
       <Route path="approvals" element={<BankerApprovals />} />
-      <Route path="rag-chat" element={<RAGChatBanker />} />
+      <Route path="kb" element={<KnowledgeBase />} />
+      <Route path="rag-chat" element={<RAGChat title="Insurance Knowledge Chat" placeholder="What is the difference between HDFC and LIC term plans?" />} />
       <Route path="notifications" element={<NotificationFeed />} />
     </Routes>
   )

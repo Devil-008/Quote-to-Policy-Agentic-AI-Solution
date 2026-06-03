@@ -1,4 +1,5 @@
-import uuid, json, os
+import uuid, json, os, time
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import Optional
@@ -21,6 +22,13 @@ llm = LLMService()
 pm  = PromptManager()
 
 
+def generate_chronological_id(offset_ms: int = 0) -> str:
+    prefix = f"{int(time.time() * 1000000) + offset_ms:016d}"
+    suffix = uuid.uuid4().hex[:19]
+    return f"{prefix}-{suffix}"
+
+
+
 # ─── Document Upload & Ingestion ─────────────────────────────────────
 
 @router.post("/documents/upload")
@@ -28,7 +36,7 @@ async def upload_document(
     file: UploadFile = File(...),
     title: str = Form(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles("SUPER_ADMIN")),
+    current_user: User = Depends(require_roles("SUPER_ADMIN", "BANKER", "UNDERWRITER", "COMPLIANCE", "OPS_ADMIN")),
 ):
     os.makedirs(settings.FILE_UPLOAD_PATH, exist_ok=True)
     doc_id    = str(uuid.uuid4())
@@ -63,6 +71,67 @@ async def upload_document(
         raise HTTPException(500, f"Indexing failed: {e}")
 
 
+@router.post("/documents/suggest-title")
+async def suggest_document_title(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_roles("SUPER_ADMIN", "BANKER", "UNDERWRITER", "COMPLIANCE", "OPS_ADMIN")),
+):
+    filename = file.filename
+    ext = os.path.splitext(filename)[1].lower()
+
+    content_bytes = await file.read()
+
+    text_sample = ""
+    try:
+        if ext == ".pdf":
+            import io
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(content_bytes))
+            if len(reader.pages) > 0:
+                text_sample = reader.pages[0].extract_text() or ""
+        elif ext in (".docx", ".doc"):
+            import io
+            import docx2txt
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp:
+                temp.write(content_bytes)
+                temp_path = temp.name
+            try:
+                text_sample = docx2txt.process(temp_path)
+            finally:
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+        else:
+            text_sample = content_bytes.decode("utf-8", errors="ignore")
+    except Exception as e:
+        text_sample = ""
+
+    text_sample = text_sample.strip()[:1500]
+
+    if not text_sample:
+        fallback_title = os.path.splitext(filename)[0].replace("_", " ").replace("-", " ").title()
+        return {"suggested_title": fallback_title}
+
+    prompt = (
+        "You are an AI assistant helping organize an insurance knowledge base. "
+        "Analyze the following document snippet and generate a very brief, concise, professional document title (maximum 5-6 words). "
+        "Return ONLY the plain title text, nothing else (no introductory phrases, no quotes, no periods).\n\n"
+        f"Document snippet:\n{text_sample}\n\n"
+        "Suggested Title:"
+    )
+    try:
+        suggested_title = await llm.complete_text(prompt)
+        suggested_title = suggested_title.strip().strip('"').strip("'").strip()
+        if not suggested_title or len(suggested_title) > 100:
+            suggested_title = os.path.splitext(filename)[0].replace("_", " ").replace("-", " ").title()
+    except Exception:
+        suggested_title = os.path.splitext(filename)[0].replace("_", " ").replace("-", " ").title()
+
+    return {"suggested_title": suggested_title}
+
+
 @router.get("/documents")
 async def list_kb_documents(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     r = await db.execute(select(KnowledgeDocument).order_by(KnowledgeDocument.created_at.desc()))
@@ -74,7 +143,7 @@ async def list_kb_documents(db: AsyncSession = Depends(get_db), current_user: Us
 
 @router.delete("/documents/{doc_id}")
 async def remove_document(doc_id: str, db: AsyncSession = Depends(get_db),
-                           current_user: User = Depends(require_roles("SUPER_ADMIN"))):
+                           current_user: User = Depends(require_roles("SUPER_ADMIN", "BANKER", "UNDERWRITER", "COMPLIANCE", "OPS_ADMIN"))):
     await delete_document(doc_id)
     from sqlalchemy import delete as sql_delete
     await db.execute(sql_delete(KnowledgeDocument).where(KnowledgeDocument.id == doc_id))
@@ -124,23 +193,31 @@ async def rag_chat(
     hist_r   = await db.execute(
         select(ConversationMessage)
         .where(ConversationMessage.session_id == session.id)
-        .order_by(ConversationMessage.created_at.desc()).limit(4)
+        .order_by(ConversationMessage.created_at.desc(), ConversationMessage.id.desc()).limit(4)
     )
-    history_msgs = list(reversed(hist_r.scalars().all()))
+    history_msgs = list(hist_r.scalars().all())
+    # Sort ascending in memory using (created_at, id) for robust sequencing
+    history_msgs.sort(key=lambda m: (m.created_at or datetime.min, m.id))
     history_str  = "\n".join([f"{m.role.upper()}: {m.content}" for m in history_msgs])
 
     prompt  = pm.rag_chat(body.message, chunks, graph_data, history_str)
     llm_res = await llm.complete(prompt, llm_context)
 
-    # Persist messages
+    # Persist messages with sequential timestamps and chronological IDs to guarantee exact order
+    user_time = datetime.utcnow()
+    user_msg_id = generate_chronological_id(offset_ms=0)
+    ai_msg_id = generate_chronological_id(offset_ms=1000) # Offset of 1ms (1000us) to ensure assistant sorts second
+    
     user_msg = ConversationMessage(
-        id=str(uuid.uuid4()), session_id=session.id, role="user", content=body.message
+        id=user_msg_id, session_id=session.id, role="user", content=body.message,
+        created_at=user_time
     )
     ai_msg = ConversationMessage(
-        id=str(uuid.uuid4()), session_id=session.id, role="assistant",
+        id=ai_msg_id, session_id=session.id, role="assistant",
         content=llm_res["response"],
         retrieved_chunks=[{"text": c["text"][:200], "score": c["score"]} for c in chunks],
         graph_relations=graph_data,
+        created_at=user_time + timedelta(seconds=1)
     )
     db.add(user_msg)
     db.add(ai_msg)
@@ -171,8 +248,32 @@ async def list_sessions(db: AsyncSession = Depends(get_db), current_user: User =
 async def session_messages(session_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     r = await db.execute(
         select(ConversationMessage).where(ConversationMessage.session_id == session_id)
-        .order_by(ConversationMessage.created_at.asc())
+        .order_by(ConversationMessage.created_at.asc(), ConversationMessage.id.asc())
     )
-    msgs = r.scalars().all()
+    msgs = list(r.scalars().all())
+    # Sort: chronologically first, then secondary sort on our chronological ID
+    msgs.sort(key=lambda m: (m.created_at or datetime.min, m.id))
     return {"messages": [{"id": m.id, "role": m.role, "content": m.content,
                           "created_at": m.created_at.isoformat() if m.created_at else None} for m in msgs]}
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    r = await db.execute(select(ConversationSession).where(ConversationSession.id == session_id))
+    session = r.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.user_id != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized to delete this session")
+
+    from sqlalchemy import delete as sql_delete
+    await db.execute(sql_delete(ConversationMessage).where(ConversationMessage.session_id == session_id))
+    await db.delete(session)
+    await db.commit()
+
+    return {"message": "Session deleted"}

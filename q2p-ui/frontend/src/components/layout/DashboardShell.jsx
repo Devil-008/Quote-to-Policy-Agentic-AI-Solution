@@ -23,6 +23,7 @@ const NAV = {
     { label: 'Quotes', icon: Scale, to: '/dashboard/banker/quotes' },
     { label: 'Approvals', icon: CheckCircle, to: '/dashboard/banker/approvals' },
     { label: 'Notifications', icon: Bell, to: '/dashboard/banker/notifications' },
+    { label: 'Knowledge Base', icon: BookOpen, to: '/dashboard/banker/kb' },
     { label: 'RAG Chat', icon: MessageSquare, to: '/dashboard/banker/rag-chat' },
   ],
   CUSTOMER: [
@@ -33,21 +34,28 @@ const NAV = {
     { label: 'Medical', icon: CalendarClock, to: '/dashboard/customer/medical' },
     { label: 'My Policies', icon: FileText, to: '/dashboard/customer/policies' },
     { label: 'Documents', icon: ClipboardList, to: '/dashboard/customer/documents' },
+    { label: 'RAG Chat', icon: MessageSquare, to: '/dashboard/customer/rag-chat' },
   ],
   UNDERWRITER: [
     { label: 'UW Queue', icon: ClipboardList, to: '/dashboard/underwriter' },
     { label: 'Decisions', icon: CheckCircle, to: '/dashboard/underwriter/decisions' },
+    { label: 'Knowledge Base', icon: BookOpen, to: '/dashboard/underwriter/kb' },
+    { label: 'RAG Chat', icon: MessageSquare, to: '/dashboard/underwriter/rag-chat' },
   ],
   COMPLIANCE: [
     { label: 'Dashboard', icon: LayoutDashboard, to: '/dashboard/compliance' },
     { label: 'Exceptions', icon: Bell, to: '/dashboard/compliance/exceptions' },
     { label: 'Consents', icon: ShieldCheck, to: '/dashboard/compliance/consents' },
     { label: 'Audit Logs', icon: ClipboardList, to: '/dashboard/compliance/audit' },
+    { label: 'Knowledge Base', icon: BookOpen, to: '/dashboard/compliance/kb' },
+    { label: 'RAG Chat', icon: MessageSquare, to: '/dashboard/compliance/rag-chat' },
   ],
   OPS_ADMIN: [
     { label: 'Medical Queue', icon: Stethoscope, to: '/dashboard/ops' },
     { label: 'Escalations', icon: Bell, to: '/dashboard/ops/escalations' },
     { label: 'SLA Monitor', icon: ClipboardList, to: '/dashboard/ops/sla' },
+    { label: 'Knowledge Base', icon: BookOpen, to: '/dashboard/ops/kb' },
+    { label: 'RAG Chat', icon: MessageSquare, to: '/dashboard/ops/rag-chat' },
   ],
 }
 
