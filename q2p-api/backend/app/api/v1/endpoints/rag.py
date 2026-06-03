@@ -1,6 +1,6 @@
 import uuid, json, os, time
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Header
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -149,6 +149,56 @@ async def remove_document(doc_id: str, db: AsyncSession = Depends(get_db),
     await db.execute(sql_delete(KnowledgeDocument).where(KnowledgeDocument.id == doc_id))
     await db.commit()
     return {"message": "Document removed"}
+
+
+@router.get("/documents/{doc_id}/view")
+async def view_document(
+    doc_id: str,
+    token: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    from fastapi.responses import FileResponse
+    from backend.app.core.security import decode_token
+    from backend.app.repositories.user_repository import UserRepository
+
+    auth_token = token
+    if not auth_token and authorization:
+        if authorization.startswith("Bearer "):
+            auth_token = authorization.split(" ")[1]
+
+    if not auth_token:
+        raise HTTPException(status_code=401, detail="Authentication token required")
+
+    try:
+        payload = decode_token(auth_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user = await UserRepository(db).get_by_id(payload.get("sub"))
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="Unauthorized or inactive user")
+
+    r = await db.execute(select(KnowledgeDocument).where(KnowledgeDocument.id == doc_id))
+    doc = r.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if not os.path.exists(doc.file_path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    media_type = "application/octet-stream"
+    if doc.file_type == ".pdf":
+        media_type = "application/pdf"
+    elif doc.file_type == ".txt":
+        media_type = "text/plain"
+
+    return FileResponse(
+        doc.file_path,
+        media_type=media_type,
+        filename=doc.file_name,
+        content_disposition_type="inline"
+    )
 
 
 # ─── RAG Chat ────────────────────────────────────────────────────────

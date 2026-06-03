@@ -147,13 +147,22 @@ export function Spinner() {
 }
 
 // ─── Modal ───────────────────────────────────────────────────────────
-export function Modal({ open, onClose, title, children }) {
+import { X } from 'lucide-react'
+
+export function Modal({ open, onClose, title, children, className = 'max-w-lg' }) {
   if (!open) return null
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-[#161b2e] border border-[#2a2f45] rounded-xl p-6 w-full max-w-lg max-h-[85vh] overflow-y-auto"
+      <div className={`bg-[#161b2e] border border-[#2a2f45] rounded-xl p-6 w-full max-h-[85vh] overflow-y-auto relative ${className}`}
            onClick={e => e.stopPropagation()}>
-        {title && <h3 className="text-lg font-bold font-display mb-4">{title}</h3>}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 p-1.5 rounded-lg border border-[#2a2f45] bg-[#1a1f36] text-[#93a1c6] hover:text-white hover:border-[#6366f1] transition-colors cursor-pointer"
+          title="Close Modal"
+        >
+          <X size={16} />
+        </button>
+        {title && <h3 className="text-lg font-bold font-display mb-4 pr-8">{title}</h3>}
         {children}
       </div>
     </div>

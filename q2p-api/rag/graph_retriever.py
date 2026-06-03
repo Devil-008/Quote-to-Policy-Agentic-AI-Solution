@@ -10,26 +10,50 @@ logger = logging.getLogger(__name__)
 
 _client = None
 _db     = None
+_db_failed = False
 
 
 def _get_db():
-    global _client, _db
+    global _client, _db, _db_failed
+    if _db_failed:
+        return None
     if _db is None:
-        _client = ArangoClient(hosts=f"http://{settings.ARANGODB_HOST}:{settings.ARANGODB_PORT}")
-        sys_db  = _client.db("_system", username=settings.ARANGODB_USER, password=settings.ARANGODB_PASSWORD)
-        if not sys_db.has_database(settings.ARANGODB_DB):
-            sys_db.create_database(settings.ARANGODB_DB)
-        _db = _client.db(
-            settings.ARANGODB_DB,
-            username=settings.ARANGODB_USER,
-            password=settings.ARANGODB_PASSWORD,
-        )
-        _ensure_collections()
+        import socket
+        try:
+            # Quick TCP reachability check (1.5s timeout) to prevent DNS or connection hangs
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1.5)
+            sock.connect((settings.ARANGODB_HOST, settings.ARANGODB_PORT))
+            sock.close()
+        except (socket.gaierror, socket.timeout, ConnectionRefusedError, OSError) as e:
+            logger.warning(
+                f"ArangoDB at {settings.ARANGODB_HOST}:{settings.ARANGODB_PORT} is not reachable ({e}). "
+                "Skipping Graph DB initialization."
+            )
+            _db_failed = True
+            return None
+
+        try:
+            _client = ArangoClient(hosts=f"http://{settings.ARANGODB_HOST}:{settings.ARANGODB_PORT}")
+            sys_db  = _client.db("_system", username=settings.ARANGODB_USER, password=settings.ARANGODB_PASSWORD)
+            if not sys_db.has_database(settings.ARANGODB_DB):
+                sys_db.create_database(settings.ARANGODB_DB)
+            _db = _client.db(
+                settings.ARANGODB_DB,
+                username=settings.ARANGODB_USER,
+                password=settings.ARANGODB_PASSWORD,
+            )
+            _ensure_collections()
+        except Exception as e:
+            logger.warning(f"ArangoDB connection failed: {e}")
+            return None
     return _db
 
 
 def _ensure_collections():
     db = _db
+    if db is None:
+        return
     for col in ["knowledge_nodes", "knowledge_edges"]:
         if not db.has_collection(col):
             if col.endswith("edges"):
@@ -41,6 +65,8 @@ def _ensure_collections():
 def store_relationship(source_id: str, target_id: str, relation_type: str, meta: dict = None):
     try:
         db = _get_db()
+        if db is None:
+            return
         nodes = db.collection("knowledge_nodes")
         edges = db.collection("knowledge_edges")
         for nid in [source_id, target_id]:
@@ -59,6 +85,8 @@ def store_relationship(source_id: str, target_id: str, relation_type: str, meta:
 def retrieve_related(query_terms: List[str], limit: int = 10) -> List[Dict]:
     try:
         db = _get_db()
+        if db is None:
+            return []
         results = []
         for term in query_terms[:3]:
             cursor = db.aql.execute(

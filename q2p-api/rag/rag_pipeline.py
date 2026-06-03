@@ -140,8 +140,17 @@ async def ingest_document(file_path: str, doc_id: str, title: str) -> int:
     ids       = [f"{doc_id}-{i}" for i in range(len(chunks))]
     metadatas = [{"doc_id": doc_id, "title": title, "chunk_index": i} for i in range(len(chunks))]
 
-    col.upsert(ids=ids, documents=chunks, embeddings=embeddings, metadatas=metadatas)
-    logger.info(f"Ingested {len(chunks)} chunks for doc {doc_id} into ChromaDB")
+    # Batch upsert to prevent exceeding ChromaDB's maximum batch size (e.g. limit of 166)
+    batch_size = 100
+    for start_idx in range(0, len(chunks), batch_size):
+        end_idx = start_idx + batch_size
+        col.upsert(
+            ids=ids[start_idx:end_idx],
+            documents=chunks[start_idx:end_idx],
+            embeddings=embeddings[start_idx:end_idx],
+            metadatas=metadatas[start_idx:end_idx]
+        )
+    logger.info(f"Ingested {len(chunks)} chunks for doc {doc_id} in batches into ChromaDB")
     return len(chunks)
 
 
@@ -196,16 +205,19 @@ async def delete_document(doc_id: str):
     try:
         from rag.graph_retriever import _get_db
         db = _get_db()
-        db.aql.execute(
-            """
-            FOR e IN knowledge_edges
-                FILTER e._from == @doc_node OR e._to == @doc_node
-                REMOVE e IN knowledge_edges
-            """,
-            bind_vars={"doc_node": f"knowledge_nodes/{doc_id}"}
-        )
-        if db.collection("knowledge_nodes").has(doc_id):
-            db.collection("knowledge_nodes").delete(doc_id)
-        logger.info(f"Deleted document {doc_id} from Graph DB")
+        if db is not None:
+            db.aql.execute(
+                """
+                FOR e IN knowledge_edges
+                    FILTER e._from == @doc_node OR e._to == @doc_node
+                    REMOVE e IN knowledge_edges
+                """,
+                bind_vars={"doc_node": f"knowledge_nodes/{doc_id}"}
+            )
+            if db.collection("knowledge_nodes").has(doc_id):
+                db.collection("knowledge_nodes").delete(doc_id)
+            logger.info(f"Deleted document {doc_id} from Graph DB")
+        else:
+            logger.warning(f"Skipping Graph DB cleanup for doc_id {doc_id} as Graph DB is offline.")
     except Exception as ge:
         logger.warning(f"Failed to delete document from Graph DB: {ge}")

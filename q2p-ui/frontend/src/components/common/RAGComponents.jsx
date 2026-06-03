@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { Badge, Card, SectionHeader, Btn, Input, Alert, Spinner, DataTable } from './index'
-import { Upload, Trash2 } from 'lucide-react'
+import { Badge, Card, SectionHeader, Btn, Input, Alert, Spinner, DataTable, Modal } from './index'
+import { Upload, Trash2, Eye } from 'lucide-react'
 import api from '../../services/api'
 
 // ── Dropzone helper component ─────────────────────────────────────────
@@ -80,6 +80,9 @@ export function KnowledgeBase() {
   const [uploading, setUploading] = useState(false)
   const [err, setErr]         = useState(null)
   const [ok, setOk]         = useState(null)
+  const [selectedDocId, setSelectedDocId] = useState(null)
+  const [selectedDocTitle, setSelectedDocTitle] = useState('')
+  const [viewOpen, setViewOpen] = useState(false)
 
   const load = () => {
     api.get('/rag/documents')
@@ -135,7 +138,14 @@ export function KnowledgeBase() {
     }
   }
 
-  const remove = async id => {
+  const handleView = (id, title) => {
+    setSelectedDocId(id)
+    setSelectedDocTitle(title)
+    setViewOpen(true)
+  }
+
+  const handleDelete = async (id, title) => {
+    if (!window.confirm(`Are you sure you want to delete "${title}"?`)) return
     try {
       await api.delete(`/rag/documents/${id}`)
       setDocs(d => d.filter(x => x.id !== id))
@@ -150,7 +160,24 @@ export function KnowledgeBase() {
     { key:'status',      label:'Status', render: r => <Badge label={r.status} /> },
     { key:'chunk_count', label:'Chunks' },
     { key:'created_at',  label:'Uploaded', render: r => r.created_at ? new Date(r.created_at).toLocaleDateString() : '—' },
-    { key:'actions',     label:'',         render: r => <Btn size="sm" variant="danger" onClick={() => remove(r.id)}>Delete</Btn> },
+    { key:'action',      label:'Action',   render: r => (
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => handleView(r.id, r.title)}
+          className="p-1.5 rounded-lg border border-[#2a2f45] bg-[#1a1f36] text-[#93a1c6] hover:text-[#6366f1] hover:border-[#6366f1] transition-colors cursor-pointer"
+          title="View Document"
+        >
+          <Eye size={16} />
+        </button>
+        <button
+          onClick={() => handleDelete(r.id, r.title)}
+          className="p-1.5 rounded-lg border border-[#2a2f45] bg-[#1a1f36] text-[#93a1c6] hover:text-red-400 hover:border-red-400 transition-colors cursor-pointer"
+          title="Delete Document"
+        >
+          <Trash2 size={16} />
+        </button>
+      </div>
+    )},
   ]
 
   return (
@@ -189,6 +216,20 @@ export function KnowledgeBase() {
         </Card>
       </div>
       <Card>{loading ? <Spinner /> : <DataTable columns={cols} rows={docs} emptyText="No documents indexed." />}</Card>
+
+      <Modal open={viewOpen} onClose={() => setViewOpen(false)} title={selectedDocTitle} className="max-w-4xl">
+        <div className="w-full h-[70vh] bg-[#0f1117] rounded-lg overflow-hidden border border-[#2a2f45] relative">
+          {selectedDocId ? (
+            <iframe
+              src={`/api/v1/rag/documents/${selectedDocId}/view?token=${encodeURIComponent(localStorage.getItem('access_token'))}`}
+              className="w-full h-full border-none"
+              title={selectedDocTitle}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full text-sm text-[#6b7280]">No document selected</div>
+          )}
+        </div>
+      </Modal>
     </div>
   )
 }
