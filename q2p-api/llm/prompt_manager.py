@@ -134,3 +134,51 @@ Return JSON with:
 - next_steps: list
 
 Respond ONLY with valid JSON."""
+
+    @staticmethod
+    def quote_comparison_personalized(quotes: list, needs: dict, kb_context: str, customer_profile: dict) -> str:
+        return f"""You are an expert insurance advisor and comparison specialist.
+
+Your task is to rank and compare the following insurance quotes specifically tailored for this customer.
+Ensure your recommendation is highly personalized based on the customer's unique profile (such as their age, income, dependents, risk appetite, and goals) and the relevant knowledge base context.
+
+CUSTOMER PROFILE:
+{json.dumps(customer_profile, indent=2)}
+
+CUSTOMER NEEDS:
+{json.dumps(needs, indent=2)}
+
+RETRIEVED KNOWLEDGE BASE CONTEXT:
+{kb_context}
+
+AVAILABLE QUOTES:
+{json.dumps(quotes, indent=2)}
+
+Instructions:
+1. Rank the quotes based on how well they fit this customer's profile, budget, and needs.
+2. For each ranked quote, provide a personalized recommendation narrative (reason) explaining why it was ranked this way and why it suits (or doesn't suit) this specific customer. Include direct references to details from the knowledge base context if relevant (e.g., specific rules, waiting periods, or limits).
+3. Identify and recommend specific policy add-on options (riders) for each quote that would be highly beneficial for this specific customer based on their profile (e.g., if they have dependents, recommend accidental death or premium waiver; if they have health concerns/older age, recommend critical illness cover).
+4. Do not send the same generic recommendation to every customer. Personalize the explanation using the customer's name, age, income level, and goals.
+
+Return a valid JSON object with the following structure:
+{{
+  "ranked_quotes": [
+    {{
+      "insurer_code": "INSURER_CODE",
+      "rank": 1,
+      "score": 0.95,
+      "reason": "Personalized narrative text detailing why this policy is recommended, referencing retrieved knowledge base facts and the customer's specific profile (e.g., name, age, income, dependents).",
+      "recommended_add_ons": [
+        {{
+          "name": "Add-on / Rider Name",
+          "reason": "Personalized reason why this add-on is recommended for this customer based on their profile."
+        }}
+      ]
+    }}
+  ],
+  "top_recommendation": "INSURER_CODE",
+  "recommendation_summary": "Overall summary of the personalized recommendation for the banker's review."
+}}
+
+Respond ONLY with valid JSON."""
+

@@ -238,3 +238,64 @@ async def delete_document(doc_id: str):
             logger.warning(f"Skipping Graph DB cleanup for doc_id {doc_id} as Graph DB is offline.")
     except Exception as ge:
         logger.warning(f"Failed to delete document from Graph DB: {ge}")
+
+
+async def get_kb_context_for_customer(customer_profile: dict, needs_analysis: dict) -> str:
+    """
+    Build queries and retrieve relevant policy information and rider details
+    from the knowledge base (ChromaDB) specifically matching the customer's profile.
+    """
+    # Safe extraction of lists/fields
+    goals = customer_profile.get("financial_goals", [])
+    if isinstance(goals, list):
+        goals_str = ", ".join([str(g) for g in goals])
+    elif goals:
+        goals_str = str(goals)
+    else:
+        goals_str = ""
+
+    needs = needs_analysis.get("key_needs", [])
+    if isinstance(needs, list):
+        needs_str = ", ".join([str(n) for n in needs])
+    elif needs:
+        needs_str = str(needs)
+    else:
+        needs_str = ""
+
+    coverage_type = needs_analysis.get("recommended_coverage_type") or "TERM"
+    age = customer_profile.get("age") or customer_profile.get("date_of_birth") or ""
+    dependents = customer_profile.get("dependents") or "0"
+    risk_appetite = customer_profile.get("risk_appetite") or ""
+
+    # Build two search queries to cover both general features and riders
+    q1 = f"{coverage_type} insurance coverage options, eligibility, rules, and suitability for age {age}, risk {risk_appetite}, goals: {goals_str}, needs: {needs_str}"
+    q2 = f"policy riders, add-ons, accidental death cover, critical illness benefit, premium waiver rules and benefits for {coverage_type} insurance with {dependents} dependents"
+
+    try:
+        chunks1 = await semantic_search(q1, top_k=3)
+        chunks2 = await semantic_search(q2, top_k=3)
+    except Exception as e:
+        logger.error(f"Semantic search failed during get_kb_context_for_customer: {e}", exc_info=True)
+        return "No knowledge base documents found or retrieval failed."
+
+    # De-duplicate chunks
+    all_chunks = []
+    seen = set()
+    for c in chunks1 + chunks2:
+        text_hash = hash(c["text"])
+        if text_hash not in seen:
+            seen.add(text_hash)
+            all_chunks.append(c)
+
+    # Format the chunks into a unified context string
+    if not all_chunks:
+        return "No matching policy terms or add-on riders found in the knowledge base."
+
+    kb_context_parts = []
+    for chunk in all_chunks[:5]:
+        kb_context_parts.append(
+            f"Source Document: {chunk['title']}\nContent Snippet:\n{chunk['text']}"
+        )
+
+    return "\n\n---\n\n".join(kb_context_parts)
+

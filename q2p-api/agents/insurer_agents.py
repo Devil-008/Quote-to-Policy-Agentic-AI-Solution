@@ -126,6 +126,42 @@ async def icici_quote(payload: dict) -> Dict:
     }
 
 
+# ─── SBI General Insurance ───────────────────────────────────────────
+
+async def sbi_quote(payload: dict) -> Dict:
+    await asyncio.sleep(0.1)
+    base_premium = payload.get("sum_assured", 1000000) * 0.007
+    return {
+        "insurer_code":    "SBI_GENERAL",
+        "insurer_name":    "SBI General Insurance",
+        "product_name":    "SBI General Health Insurance Policy",
+        "product_code":    "SBI-GHIP-2024",
+        "plan_type":       "HEALTH",
+        "annual_premium":  round(base_premium * random.uniform(0.9, 1.1), 2),
+        "sum_assured":     payload.get("sum_assured", 1000000),
+        "policy_tenure":   payload.get("policy_tenure", 20),
+        "premium_frequency": "ANNUAL",
+        "coverage_details": {
+            "life_cover":       False,
+            "accidental_cover": True,
+            "critical_illness": True,
+            "waiver_of_premium": False,
+        },
+        "riders": [
+            {"name": "Critical Illness Benefit Rider", "annual_cost": 1500},
+            {"name": "Accidental Death Benefit", "annual_cost": 1000},
+        ],
+        "exclusions":     ["Pre-existing diseases for 3 years", "Cosmetic surgery"],
+        "waiting_period_days": 30,
+        "underwriting_requirements": ["Age proof", "Proposal form", "Medical test if age > 55"],
+        "medical_requirements":      ["Blood sugar", "Urine analysis", "ECG"],
+        "min_age": 18, "max_age": 65,
+        "tax_benefit": "80D",
+        "claim_settlement_ratio": 0.9650,
+        "score": round(random.uniform(0.85, 0.97), 4),
+    }
+
+
 # ─── Normalization ───────────────────────────────────────────────────
 
 def normalize(raw: dict) -> dict:
@@ -153,16 +189,28 @@ def normalize(raw: dict) -> dict:
 
 
 async def fetch_all_quotes(payload: dict) -> List[dict]:
-    """Fetch from all insurers concurrently and normalize."""
-    raw_results = await asyncio.gather(
-        hdfc_quote(payload),
-        lic_quote(payload),
-        icici_quote(payload),
-        return_exceptions=True,
-    )
+    """Fetch from selected insurers (present in knowledge base) and normalize."""
+    insurers = payload.get("insurers")
+    if insurers is None:
+        insurers = ["HDFC_LIFE", "LIC", "ICICI_PRU"]
+    
+    tasks = []
+    if "SBI_GENERAL" in insurers:
+        tasks.append(sbi_quote(payload))
+    if "HDFC_LIFE" in insurers:
+        tasks.append(hdfc_quote(payload))
+    if "LIC" in insurers:
+        tasks.append(lic_quote(payload))
+    if "ICICI_PRU" in insurers:
+        tasks.append(icici_quote(payload))
+        
+    if not tasks:
+        return []
+
+    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
     quotes = []
     for raw in raw_results:
-        if isinstance(raw, Exception):
+        if isinstance(raw, Exception) or not isinstance(raw, dict):
             continue
         quotes.append(normalize(raw))
     # Sort by score descending
@@ -170,3 +218,4 @@ async def fetch_all_quotes(payload: dict) -> List[dict]:
     for i, q in enumerate(quotes):
         q["ai_rank"] = i + 1
     return quotes
+

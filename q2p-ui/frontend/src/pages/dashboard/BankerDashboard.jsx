@@ -87,6 +87,12 @@ function CaseList() {
   const [selected, setSelected] = useState(null)
   const [quotes, setQuotes] = useState([])
   const [qLoading, setQL] = useState(false)
+  
+  // Filtering states
+  const [showFilters, setShowFilters] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterStage, setFilterStage] = useState('ALL')
+  const [filterStatus, setFilterStatus] = useState('ALL')
 
   useEffect(() => { dispatch(fetchCases()) }, [dispatch])
 
@@ -135,7 +141,18 @@ function CaseList() {
   const active = cases.filter(c => c.status === 'ACTIVE').length
   const pending = cases.filter(c => c.status === 'PENDING').length
   const completed = cases.filter(c => c.status === 'COMPLETED').length
-  const stageIdx = selected ? STAGES.indexOf(selected.current_stage) : 0
+
+  // Selected case should be reactive to the cases list
+  const activeCase = selected ? cases.find(c => c.id === selected.id) : null
+  const stageIdx = activeCase ? STAGES.indexOf(activeCase.current_stage) : 0
+
+  // Filter cases logic
+  const filteredCases = cases.filter(c => {
+    const matchesSearch = !searchQuery || c.case_number.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesStage = filterStage === 'ALL' || c.current_stage === filterStage
+    const matchesStatus = filterStatus === 'ALL' || c.status === filterStatus
+    return matchesSearch && matchesStage && matchesStatus
+  })
 
   return (
     <div>
@@ -146,13 +163,64 @@ function CaseList() {
         <StatCard title="Pending" value={pending} color="#f59e0b" icon={FileText} />
         <StatCard title="Completed" value={completed} color="#6366f1" icon={CheckCircle} />
       </div>
+      
       <Card>
-        {loading ? <Spinner /> : <DataTable columns={cols} rows={cases} emptyText="No cases yet. Create your first case." />}
+        <div className="flex justify-between items-center mb-4">
+          <p className="font-semibold text-sm text-[#e8eaf0]">Case Directory</p>
+          <Btn size="sm" variant="secondary" onClick={() => setShowFilters(!showFilters)}>
+            {showFilters ? 'Hide Filters' : 'Show Filters'}
+          </Btn>
+        </div>
+
+        {showFilters && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5 p-4 rounded-xl border border-[#2a2f45] bg-[#0f1117]">
+            <div>
+              <label className="text-xs font-semibold text-[#6b7280] block mb-1.5">Search Case #</label>
+              <input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search case number..."
+                className="w-full bg-[#15192a] border border-[#2a2f45] rounded-lg px-3 py-2 text-sm outline-none text-[#e8eaf0] focus:border-[#6366f1]"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[#6b7280] block mb-1.5">Filter by Stage</label>
+              <select
+                value={filterStage}
+                onChange={e => setFilterStage(e.target.value)}
+                className="w-full bg-[#15192a] border border-[#2a2f45] rounded-lg px-3 py-2 text-sm outline-none text-[#e8eaf0] focus:border-[#6366f1]"
+              >
+                <option value="ALL">All Stages</option>
+                {STAGES.map(s => (
+                  <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[#6b7280] block mb-1.5">Filter by Status</label>
+              <select
+                value={filterStatus}
+                onChange={e => setFilterStatus(e.target.value)}
+                className="w-full bg-[#15192a] border border-[#2a2f45] rounded-lg px-3 py-2 text-sm outline-none text-[#e8eaf0] focus:border-[#6366f1]"
+              >
+                <option value="ALL">All Statuses</option>
+                <option value="ACTIVE">Active</option>
+                <option value="PENDING">Pending</option>
+                <option value="ON_HOLD">On Hold</option>
+                <option value="COMPLETED">Completed</option>
+                <option value="CANCELLED">Cancelled</option>
+                <option value="ESCALATED">Escalated</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {loading ? <Spinner /> : <DataTable columns={cols} rows={filteredCases} emptyText="No cases match your filters." />}
       </Card>
 
       {/* Case Detail Modal */}
-      <Modal open={!!selected} onClose={() => setSelected(null)} title={`Case: ${selected?.case_number}`}>
-        {selected && (
+      <Modal open={!!selected} onClose={() => setSelected(null)} title={`Case: ${activeCase?.case_number}`} className="max-w-4xl">
+        {activeCase && (
           <div>
             {/* Stage Progress */}
             <div className="mb-5">
@@ -173,32 +241,26 @@ function CaseList() {
 
             {/* Actions */}
             <div className="flex gap-3 mb-5 flex-wrap">
-              <Btn size="sm" onClick={() => triggerWorkflow(selected.id)}>▶ Run AI Workflow</Btn>
-              <Btn size="sm" variant="secondary" onClick={() => triggerFetch(selected.id)}>📊 Fetch Quotes</Btn>
-              {!selected.banker_approved && <Btn size="sm" variant="success" onClick={() => approve(selected.id)}>✅ Approve</Btn>}
+              <Btn size="sm" onClick={() => triggerWorkflow(activeCase.id)}>▶ Run AI Workflow</Btn>
+              <Btn size="sm" variant="secondary" onClick={() => triggerFetch(activeCase.id)}>📊 Fetch Quotes</Btn>
+              {!activeCase.banker_approved && <Btn size="sm" variant="success" onClick={() => approve(activeCase.id)}>✅ Approve</Btn>}
             </div>
 
             {/* Quotes */}
             {qLoading ? <Spinner /> : quotes.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-[#6b7280] mb-3">Quotes ({quotes.length})</p>
-                <div className="space-y-3">
-                  {quotes.map(q => (
-                    <div key={q.id} className="bg-[#0f1117] border border-[#2a2f45] rounded-lg p-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <p className="font-semibold text-sm">{q.insurer_name}</p>
-                          <p className="text-xs text-[#6b7280]">{q.product_name}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-bold text-[#22c55e] text-sm">₹{q.annual_premium?.toLocaleString()}/yr</p>
-                          <p className="text-xs text-[#6b7280]">Rank #{q.ai_rank} · Score {((q.ai_score || 0) * 100).toFixed(0)}%</p>
-                        </div>
-                      </div>
-                      {q.ai_recommendation_text && (
-                        <p className="text-xs text-[#2dd4bf] bg-[#2dd4bf]/10 rounded px-2 py-1 mt-2">{q.ai_recommendation_text.slice(0, 120)}…</p>
-                      )}
-                    </div>
+                <div className="flex justify-between items-center mb-3">
+                  <p className="text-xs font-semibold text-[#6b7280]">Quotes ({quotes.length})</p>
+                  <button 
+                    onClick={() => fetchQuotes(activeCase.id)} 
+                    className="text-xs font-semibold text-[#6366f1] hover:underline flex items-center gap-1 bg-transparent border-none cursor-pointer"
+                  >
+                    🔄 Refresh Quotes
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-4">
+                  {quotes.map((q, i) => (
+                    <QuoteCard key={q.id} q={q} isTop={i === 0} />
                   ))}
                 </div>
               </div>
@@ -417,6 +479,156 @@ function NewCaseForm() {
 }
 
 // ── Quote Comparison ──────────────────────────────────────────────────
+function QuoteCard({ q, isTop }) {
+  const [expanded, setExpanded] = useState(false)
+  const coverage = q.coverage_details || {}
+  const riders = q.riders || []
+  const exclusions = q.exclusions || []
+  const uwDocs = q.underwriting_requirements || []
+  const medicals = q.medical_requirements || []
+
+  return (
+    <Card 
+      onClick={() => setExpanded(!expanded)} 
+      className={`relative flex flex-col justify-between cursor-pointer hover:border-[#6366f1] transition-all duration-200 ${isTop ? 'border-[#6366f1]' : ''}`}
+    >
+      {isTop && (
+        <span className="absolute -top-3 left-4 bg-[#6366f1] text-white text-[10px] px-3 py-0.5 rounded-full font-bold">
+          AI Recommended
+        </span>
+      )}
+      <div>
+        <div className="flex justify-between items-start gap-4 mb-4">
+          <div>
+            <p className="font-bold text-base text-[#e8eaf0]">{q.insurer_name}</p>
+            <p className="text-xs text-[#6b7280]">{q.product_name}</p>
+          </div>
+          <div className="text-right min-w-max">
+            <p className="font-bold text-[#22c55e] text-base">₹{q.annual_premium?.toLocaleString()}</p>
+            <p className="text-[10px] text-[#6b7280]">per year</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+          <div className="bg-[#0f1117] border border-[#2a2f45] rounded-lg p-2.5">
+            <p className="text-[10px] text-[#6b7280]">Sum Assured</p>
+            <p className="font-bold text-[#e8eaf0]">₹{q.sum_assured?.toLocaleString()}</p>
+          </div>
+          <div className="bg-[#0f1117] border border-[#2a2f45] rounded-lg p-2.5">
+            <p className="text-[10px] text-[#6b7280]">Tenure</p>
+            <p className="font-bold text-[#e8eaf0]">{q.policy_tenure} yrs</p>
+          </div>
+          <div className="bg-[#0f1117] border border-[#2a2f45] rounded-lg p-2.5">
+            <p className="text-[10px] text-[#6b7280]">AI Score</p>
+            <p className="font-bold text-[#2dd4bf]">{((q.ai_score || 0) * 100).toFixed(0)}%</p>
+          </div>
+          <div className="bg-[#0f1117] border border-[#2a2f45] rounded-lg p-2.5">
+            <p className="text-[10px] text-[#6b7280]">Rank</p>
+            <p className="font-bold text-[#e8eaf0]">#{q.ai_rank}</p>
+          </div>
+        </div>
+
+        {q.ai_recommendation_text && (
+          <div className="text-xs text-[#2dd4bf] bg-[#2dd4bf]/10 rounded-lg p-3 mb-3 leading-relaxed whitespace-pre-wrap">
+            {q.ai_recommendation_text}
+          </div>
+        )}
+
+        {expanded && (
+          <div className="space-y-4 pt-3 border-t border-[#2a2f45] text-xs">
+            {/* Benefit Coverages */}
+            {Object.keys(coverage).length > 0 && (
+              <div>
+                <p className="text-[#6b7280] font-semibold mb-2">Benefit Coverages</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(coverage).map(([key, val]) => {
+                    const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                    return (
+                      <span key={key} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] ${val ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/20' : 'bg-[#ef4444]/10 text-[#ef4444] border-[#ef4444]/20'}`}>
+                        {val ? '✓' : '✗'} {label}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Waiting Period */}
+            {q.waiting_period_days !== undefined && q.waiting_period_days !== null && (
+              <div className="flex justify-between items-center bg-[#0f1117] border border-[#2a2f45] rounded-lg p-2.5">
+                <span className="text-[#6b7280]">Waiting Period</span>
+                <span className="font-semibold text-[#e8eaf0]">{q.waiting_period_days} days</span>
+              </div>
+            )}
+
+            {/* Riders */}
+            {riders.length > 0 && (
+              <div>
+                <p className="text-[#6b7280] font-semibold mb-1.5">Optional Add-ons / Riders</p>
+                <ul className="space-y-1 pl-4 list-disc text-[#e8eaf0]">
+                  {riders.map((r, i) => {
+                    const rName = r.name || r.rider_name || "";
+                    const cost = r.annual_cost || r.annual_premium || r.premium_per_year;
+                    return (
+                      <li key={i}>
+                        <span>{rName}</span>
+                        {cost !== undefined && cost !== null && <span className="text-[#22c55e] font-semibold"> (+₹{cost.toLocaleString()}/yr)</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {/* Exclusions */}
+            {exclusions.length > 0 && (
+              <div>
+                <p className="text-[#6b7280] font-semibold mb-1.5">Policy Exclusions</p>
+                <ul className="space-y-1 pl-4 list-disc text-[#ef4444]">
+                  {exclusions.map((exc, i) => (
+                    <li key={i}>{exc}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Requirements */}
+            {(uwDocs.length > 0 || medicals.length > 0) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                {uwDocs.length > 0 && (
+                  <div>
+                    <p className="text-[#6b7280] font-semibold mb-1.5">Required Docs</p>
+                    <ul className="space-y-1.5 pl-4 list-disc text-[#e8eaf0]">
+                      {uwDocs.map((doc, i) => <li key={i}>{doc}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {medicals.length > 0 && (
+                  <div>
+                    <p className="text-[#6b7280] font-semibold mb-1.5">Medical Tests</p>
+                    <ul className="space-y-1.5 pl-4 list-disc text-[#e8eaf0]">
+                      {medicals.map((test, i) => <li key={i}>{test}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4">
+        <button
+          onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+          className="w-full text-center py-2 px-3 rounded-lg border border-[#2a2f45] bg-[#15192a] hover:bg-[#1a1f36] text-xs font-semibold text-[#e8eaf0] transition-colors"
+        >
+          {expanded ? 'Hide Details' : 'Show Details'}
+        </button>
+      </div>
+    </Card>
+  )
+}
+
 function QuoteComparison() {
   const { list: cases } = useSelector(s => s.cases)
   const [caseId, setCaseId] = useState('')
@@ -446,30 +658,7 @@ function QuoteComparison() {
       {loading ? <Spinner /> : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {quotes.map((q, i) => (
-            <Card key={q.id} className={`relative ${i === 0 ? 'border-[#6366f1]' : ''}`}>
-              {i === 0 && <span className="absolute -top-3 left-4 bg-[#6366f1] text-white text-xs px-3 py-0.5 rounded-full font-bold">AI Recommended</span>}
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <p className="font-bold text-sm">{q.insurer_name}</p>
-                  <p className="text-xs text-[#6b7280]">{q.product_name}</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-bold text-[#22c55e]">₹{q.annual_premium?.toLocaleString()}</p>
-                  <p className="text-xs text-[#6b7280]">per year</p>
-                </div>
-              </div>
-              <div className="space-y-2 text-xs">
-                <div className="flex justify-between"><span className="text-[#6b7280]">Sum Assured</span><span>₹{q.sum_assured?.toLocaleString()}</span></div>
-                <div className="flex justify-between"><span className="text-[#6b7280]">Tenure</span><span>{q.policy_tenure} yrs</span></div>
-                <div className="flex justify-between"><span className="text-[#6b7280]">AI Score</span>
-                  <span className="text-[#2dd4bf] font-bold">{((q.ai_score || 0) * 100).toFixed(0)}%</span>
-                </div>
-                <div className="flex justify-between"><span className="text-[#6b7280]">Rank</span><span>#{q.ai_rank}</span></div>
-              </div>
-              {q.ai_recommendation_text && (
-                <p className="text-xs text-[#2dd4bf] bg-[#2dd4bf]/10 rounded p-2 mt-3 leading-relaxed">{q.ai_recommendation_text.slice(0, 150)}…</p>
-              )}
-            </Card>
+            <QuoteCard key={q.id} q={q} isTop={i === 0} />
           ))}
           {!loading && quotes.length === 0 && caseId && (
             <p className="text-[#6b7280] text-sm col-span-3 text-center py-10">No quotes yet. Click "Fetch New" to retrieve.</p>

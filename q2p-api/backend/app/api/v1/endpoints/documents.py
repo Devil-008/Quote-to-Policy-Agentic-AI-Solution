@@ -104,7 +104,7 @@ async def verify_document(
     document_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.OPS_ADMIN, UserRole.SUPER_ADMIN)
+        require_roles(UserRole.OPS_ADMIN, UserRole.UNDERWRITER, UserRole.SUPER_ADMIN)
     ),
 ):
     from sqlalchemy import update as sql_update

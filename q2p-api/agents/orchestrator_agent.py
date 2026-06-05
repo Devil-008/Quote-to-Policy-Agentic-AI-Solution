@@ -8,6 +8,10 @@ from llm.llm_service   import LLMService
 from llm.prompt_manager import PromptManager
 from llm.response_parser import ResponseParser
 from agents.insurer_agents import fetch_all_quotes
+from rag.rag_pipeline import get_kb_context_for_customer
+from backend.app.core.database import AsyncSessionLocal
+from backend.app.models.all_models import KnowledgeDocument
+from sqlalchemy import select
 
 
 class WorkflowState(TypedDict):
@@ -64,11 +68,37 @@ async def node_suitability(state: WorkflowState) -> WorkflowState:
 # ─── Node: Quote Retrieval ────────────────────────────────────────────
 
 async def node_quote_retrieval(state: WorkflowState) -> WorkflowState:
+    # Query database to find indexed insurers
+    insurers_in_kb = []
+    docs_exist = False
+    try:
+        async with AsyncSessionLocal() as db:
+            r = await db.execute(select(KnowledgeDocument).where(KnowledgeDocument.status == 'INDEXED'))
+            docs = r.scalars().all()
+            docs_exist = len(docs) > 0
+            import re
+            for d in docs:
+                title_lower = d.title.lower()
+                if re.search(r'\bsbi\b', title_lower):
+                    insurers_in_kb.append("SBI_GENERAL")
+                if re.search(r'\bhdfc\b', title_lower):
+                    insurers_in_kb.append("HDFC_LIFE")
+                if re.search(r'\blic\b', title_lower):
+                    insurers_in_kb.append("LIC")
+                if re.search(r'\bicici\b', title_lower):
+                    insurers_in_kb.append("ICICI_PRU")
+    except Exception:
+        pass
+        
+    if not insurers_in_kb and not docs_exist:
+        insurers_in_kb = ["HDFC_LIFE", "LIC", "ICICI_PRU"]
+
     payload = {
         "sum_assured":    state["customer_profile"].get("sum_assured", 1000000),
         "premium_budget": state["customer_profile"].get("premium_budget", 50000),
         "policy_tenure":  state["customer_profile"].get("policy_tenure", 20),
         "customer_profile": state["customer_profile"],
+        "insurers": list(set(insurers_in_kb)),
     }
     quotes = await fetch_all_quotes(payload)
     return {**state, "quotes": quotes, "stage": "QUOTE_RETRIEVAL"}
@@ -77,7 +107,13 @@ async def node_quote_retrieval(state: WorkflowState) -> WorkflowState:
 # ─── Node: Quote Comparison ───────────────────────────────────────────
 
 async def node_comparison(state: WorkflowState) -> WorkflowState:
-    prompt  = pm.quote_comparison(state["quotes"], state["needs_analysis"])
+    kb_context = await get_kb_context_for_customer(state["customer_profile"], state["needs_analysis"])
+    prompt  = pm.quote_comparison_personalized(
+        state["quotes"], 
+        state["needs_analysis"], 
+        kb_context, 
+        state["customer_profile"]
+    )
     result  = await llm.complete(prompt, state.get("llm_context", []))
     parsed  = rp.parse_json(result["response"])
     return {
@@ -98,6 +134,7 @@ async def node_recommendation(state: WorkflowState) -> WorkflowState:
             "top_insurer":   top.get("insurer_code"),
             "score":         top.get("score"),
             "summary":       state["comparison"].get("recommendation_summary"),
+            "add_ons":       top.get("recommended_add_ons", []),
         },
         "stage": "RECOMMENDATION",
     }

@@ -26,6 +26,7 @@ class SendOTPRequest(BaseModel):
 class VerifyOTPRequest(BaseModel):
     case_id: str
     otp_code: str
+    selected_quote_id: str | None = None
 
 
 def _hash_otp(otp: str) -> str:
@@ -127,14 +128,23 @@ async def verify_otp(
         )
         db.add(consent)
 
-        # Auto-create policy draft from ranked #1 quote
-        quote_result = await db.execute(
-            select(Quote)
-            .where(Quote.case_id == body.case_id)
-            .order_by(Quote.ai_rank.asc())
-        )
-        top_quote = quote_result.scalars().first()
-        if top_quote:
+        # Select quote (custom choice if selected_quote_id is provided, else fallback to top ranked #1)
+        selected_quote = None
+        if body.selected_quote_id:
+            qr = await db.execute(
+                select(Quote).where(Quote.case_id == body.case_id, Quote.id == body.selected_quote_id)
+            )
+            selected_quote = qr.scalar_one_or_none()
+        
+        if not selected_quote:
+            quote_result = await db.execute(
+                select(Quote)
+                .where(Quote.case_id == body.case_id)
+                .order_by(Quote.ai_rank.asc())
+            )
+            selected_quote = quote_result.scalars().first()
+
+        if selected_quote:
             existing_policy = await db.execute(
                 select(Policy).where(Policy.case_id == body.case_id)
             )
@@ -143,16 +153,16 @@ async def verify_otp(
                 policy = Policy(
                     id=str(uuid.uuid4()),
                     case_id=body.case_id,
-                    quote_id=top_quote.id,
+                    quote_id=selected_quote.id,
                     customer_id=str(current_user.id),
                     policy_number=policy_num,
-                    insurer_code=top_quote.insurer_code,
-                    insurer_name=top_quote.insurer_name,
-                    product_name=top_quote.product_name,
-                    product_code=top_quote.product_code,
-                    annual_premium=top_quote.annual_premium,
-                    sum_assured=top_quote.sum_assured,
-                    policy_tenure=top_quote.policy_tenure,
+                    insurer_code=selected_quote.insurer_code,
+                    insurer_name=selected_quote.insurer_name,
+                    product_name=selected_quote.product_name,
+                    product_code=selected_quote.product_code,
+                    annual_premium=selected_quote.annual_premium,
+                    sum_assured=selected_quote.sum_assured,
+                    policy_tenure=selected_quote.policy_tenure,
                     status="DRAFT",
                 )
                 db.add(policy)
@@ -240,14 +250,23 @@ async def verify_otp(
     )
     db.add(consent)
 
-    # Auto-create policy draft from ranked #1 quote
-    quote_result = await db.execute(
-        select(Quote)
-        .where(Quote.case_id == body.case_id)
-        .order_by(Quote.ai_rank.asc())
-    )
-    top_quote = quote_result.scalars().first()
-    if top_quote:
+    # Select quote (custom choice if selected_quote_id is provided, else fallback to top ranked #1)
+    selected_quote = None
+    if body.selected_quote_id:
+        qr = await db.execute(
+            select(Quote).where(Quote.case_id == body.case_id, Quote.id == body.selected_quote_id)
+        )
+        selected_quote = qr.scalar_one_or_none()
+    
+    if not selected_quote:
+        quote_result = await db.execute(
+            select(Quote)
+            .where(Quote.case_id == body.case_id)
+            .order_by(Quote.ai_rank.asc())
+        )
+        selected_quote = quote_result.scalars().first()
+
+    if selected_quote:
         existing_policy = await db.execute(
             select(Policy).where(Policy.case_id == body.case_id)
         )
@@ -256,16 +275,16 @@ async def verify_otp(
             policy = Policy(
                 id=str(uuid.uuid4()),
                 case_id=body.case_id,
-                quote_id=top_quote.id,
+                quote_id=selected_quote.id,
                 customer_id=str(current_user.id),
                 policy_number=policy_num,
-                insurer_code=top_quote.insurer_code,
-                insurer_name=top_quote.insurer_name,
-                product_name=top_quote.product_name,
-                product_code=top_quote.product_code,
-                annual_premium=top_quote.annual_premium,
-                sum_assured=top_quote.sum_assured,
-                policy_tenure=top_quote.policy_tenure,
+                insurer_code=selected_quote.insurer_code,
+                insurer_name=selected_quote.insurer_name,
+                product_name=selected_quote.product_name,
+                product_code=selected_quote.product_code,
+                annual_premium=selected_quote.annual_premium,
+                sum_assured=selected_quote.sum_assured,
+                policy_tenure=selected_quote.policy_tenure,
                 status="DRAFT",
             )
             db.add(policy)

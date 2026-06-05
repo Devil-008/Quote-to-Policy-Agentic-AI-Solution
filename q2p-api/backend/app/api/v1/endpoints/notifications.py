@@ -1,24 +1,35 @@
 """
-Notifications endpoint — list and manage notification logs.
+Notifications endpoint — list, manage, send, and count notification logs.
 """
 
-from fastapi import APIRouter, Depends
+import uuid
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from backend.app.core.database import get_db
-from backend.app.core.security import require_roles
-from backend.app.models.all_models import User, UserRole, NotificationLog
+from backend.app.core.security import get_current_user, require_roles
+from backend.app.models.all_models import User, UserRole, NotificationLog, Case
 from backend.app.repositories.quote_policy_otp_repository import NotificationRepository
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 
+class SendNotificationBody(BaseModel):
+    case_id: str
+    customer_id: str
+    subject: str
+    message: str
+
+
+# ─── Pending (admin/ops view) ─────────────────────────────────────────
 @router.get("/pending")
 async def pending_notifications(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.OPS_ADMIN)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.OPS_ADMIN, UserRole.UNDERWRITER)
     ),
 ):
     repo = NotificationRepository(db)
@@ -26,19 +37,11 @@ async def pending_notifications(
     return {"notifications": [_serialize(n) for n in items]}
 
 
+# ─── My notifications (all roles) ────────────────────────────────────
 @router.get("/mine")
 async def my_notifications(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(
-            UserRole.BANKER,
-            UserRole.CUSTOMER,
-            UserRole.UNDERWRITER,
-            UserRole.COMPLIANCE,
-            UserRole.OPS_ADMIN,
-            UserRole.SUPER_ADMIN,
-        )
-    ),
+    current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
         select(NotificationLog)
@@ -50,6 +53,100 @@ async def my_notifications(
     return {"notifications": [_serialize(n) for n in items]}
 
 
+# ─── Unread count ─────────────────────────────────────────────────────
+@router.get("/unread-count")
+async def unread_count(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Returns count of PENDING (unread) notifications for the current user."""
+    result = await db.execute(
+        select(func.count(NotificationLog.id))
+        .where(
+            NotificationLog.recipient_id == str(current_user.id),
+            NotificationLog.status == "PENDING",
+        )
+    )
+    count = result.scalar() or 0
+    return {"count": count}
+
+
+# ─── Mark read (individual) ───────────────────────────────────────────
+@router.post("/{notification_id}/mark-read")
+async def mark_read(
+    notification_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(NotificationLog).where(
+            NotificationLog.id == notification_id,
+            NotificationLog.recipient_id == str(current_user.id),
+        )
+    )
+    notif = result.scalar_one_or_none()
+    if not notif:
+        raise HTTPException(404, "Notification not found")
+    notif.status = "SENT"
+    notif.sent_at = datetime.utcnow()
+    await db.commit()
+    return {"message": "Marked as read"}
+
+
+# ─── Mark all read ────────────────────────────────────────────────────
+@router.post("/mark-all-read")
+async def mark_all_read(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from sqlalchemy import update as sql_update
+    await db.execute(
+        sql_update(NotificationLog)
+        .where(
+            NotificationLog.recipient_id == str(current_user.id),
+            NotificationLog.status == "PENDING",
+        )
+        .values(status="SENT", sent_at=datetime.utcnow())
+    )
+    await db.commit()
+    return {"message": "All notifications marked as read"}
+
+
+# ─── Send notification (Underwriter → Customer) ───────────────────────
+@router.post("/send")
+async def send_notification(
+    body: SendNotificationBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.UNDERWRITER, UserRole.SUPER_ADMIN, UserRole.OPS_ADMIN, UserRole.BANKER)
+    ),
+):
+    """Underwriter / Banker sends a notification to a specific customer."""
+    # Validate customer exists
+    result = await db.execute(
+        select(User).where(User.id == body.customer_id)
+    )
+    customer = result.scalar_one_or_none()
+    if not customer:
+        raise HTTPException(404, "Customer not found")
+
+    notif = NotificationLog(
+        id=str(uuid.uuid4()),
+        recipient_id=body.customer_id,
+        recipient_email=customer.email,
+        subject=body.subject,
+        body=body.message,
+        notification_type="IN_APP",
+        reference_type="CASE",
+        reference_id=body.case_id,
+        status="PENDING",
+    )
+    db.add(notif)
+    await db.commit()
+    return {"message": "Notification sent", "id": notif.id}
+
+
+# ─── Mark sent (admin) ────────────────────────────────────────────────
 @router.post("/{notification_id}/mark-sent")
 async def mark_sent(
     notification_id: str,
@@ -66,6 +163,7 @@ def _serialize(n) -> dict:
         "id": n.id,
         "recipient_email": n.recipient_email,
         "subject": n.subject,
+        "body": getattr(n, "body", ""),
         "notification_type": n.notification_type,
         "reference_type": n.reference_type,
         "reference_id": n.reference_id,

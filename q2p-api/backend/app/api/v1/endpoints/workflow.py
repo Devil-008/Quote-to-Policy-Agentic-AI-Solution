@@ -116,6 +116,97 @@ async def _save_quotes(db: AsyncSession, case_id: str, quotes: list[dict]):
         )
 
 
+def is_insurer_match(code1: str, code2: str) -> bool:
+    if not code1 or not code2:
+        return False
+    c1 = code1.upper().replace("_", "").replace(" ", "")
+    c2 = code2.upper().replace("_", "").replace(" ", "")
+    if c1 == c2:
+        return True
+    if "SBI" in c1 and "SBI" in c2:
+        return True
+    if "HDFC" in c1 and "HDFC" in c2:
+        return True
+    if "ICICI" in c1 and "ICICI" in c2:
+        return True
+    if "LIC" in c1 and "LIC" in c2:
+        return True
+    return False
+
+
+def get_rider_cost_info(rider_name: str, available_riders: list) -> str:
+    if not rider_name or not available_riders:
+        return ""
+    r_name_clean = rider_name.lower().strip()
+    for r in available_riders:
+        name = r.get("name") or r.get("rider_name") or ""
+        if not name:
+            continue
+        name_clean = name.lower().strip()
+        if r_name_clean in name_clean or name_clean in r_name_clean:
+            cost = r.get("annual_cost") or r.get("annual_premium") or r.get("premium_per_year")
+            if cost is not None:
+                return f" (Cost: ₹{cost}/year)"
+    return ""
+
+
+async def _update_quotes_with_comparison(db: AsyncSession, case_id: str, comparison: dict):
+    if not comparison:
+        return
+
+    r = await db.execute(select(Quote).where(Quote.case_id == case_id))
+    db_quotes = r.scalars().all()
+
+    # Sort DB quotes by score or rank to know the top quote as fallback
+    db_quotes_sorted = sorted(db_quotes, key=lambda x: x.ai_rank or 99)
+
+    parse_err = comparison.get("parse_error", False)
+    raw_text = comparison.get("raw_response", "")
+
+    for q in db_quotes:
+        # Find matching ranked quote by insurer_code
+        match = None
+        if not parse_err and "ranked_quotes" in comparison:
+            for rq in comparison["ranked_quotes"]:
+                if is_insurer_match(rq.get("insurer_code"), q.insurer_code):
+                    match = rq
+                    break
+        
+        if match:
+            q.ai_rank = match.get("rank", q.ai_rank)
+            q.ai_score = match.get("score", q.ai_score)
+            
+            reason = match.get("reason", "")
+            add_ons = match.get("recommended_add_ons", [])
+            
+            rec_text = reason
+            if add_ons:
+                rec_text += "\n\nRecommended Add-ons / Riders:\n"
+                for addon in add_ons:
+                    name = addon.get("name") or addon.get("rider_name") or ""
+                    r_reason = addon.get("reason") or ""
+                    cost_str = get_rider_cost_info(name, q.riders or [])
+                    rec_text += f"• {name}{cost_str}: {r_reason}\n"
+            
+            q.ai_recommendation_text = rec_text.strip()
+        else:
+            # Fallback if no match was found for this quote, but this is the top quote in the list
+            fallback_done = False
+            if not parse_err and db_quotes_sorted and q.id == db_quotes_sorted[0].id:
+                summary = comparison.get("recommendation_summary")
+                if summary:
+                    q.ai_recommendation_text = summary
+                    fallback_done = True
+            
+            # Fallback if parsing failed or no match found
+            # If this is the top ranked quote, set the raw LLM response as the recommendation text
+            if not fallback_done and parse_err and db_quotes_sorted and q.id == db_quotes_sorted[0].id:
+                import re
+                cleaned_text = re.sub(r"```(?:json)?\s*([\s\S]*?)```", r"\1", raw_text).strip()
+                q.ai_recommendation_text = cleaned_text
+
+
+
 async def _run_workflow_bg(case_id: str):
     from backend.app.core.database import AsyncSessionLocal
 
@@ -125,9 +216,14 @@ async def _run_workflow_bg(case_id: str):
         if not case:
             return
 
+        profile = case.customer_profile or {}
+        profile["sum_assured"] = case.sum_assured or profile.get("sum_assured") or 1000000
+        profile["premium_budget"] = case.premium_budget or profile.get("premium_budget") or 50000
+        profile["policy_tenure"] = case.policy_tenure or profile.get("policy_tenure") or 20
+
         state: WorkflowState = {
             "case_id": case_id,
-            "customer_profile": case.customer_profile or {},
+            "customer_profile": profile,
             "needs_analysis": {},
             "suitability_result": {},
             "quotes": [],
@@ -179,6 +275,7 @@ async def _run_workflow_bg(case_id: str):
         previous_stage = CaseStage.QUOTE_RETRIEVAL
 
         state = await node_comparison(state)
+        await _update_quotes_with_comparison(db, case_id, state["comparison"])
         await _persist_case_stage(db, case_id, CaseStage.QUOTE_COMPARISON)
         await _record_stage(
             db, case_id, previous_stage, CaseStage.QUOTE_COMPARISON, "workflow"

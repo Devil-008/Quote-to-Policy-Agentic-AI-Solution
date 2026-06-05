@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import { logout } from '../../store/slices/authSlice'
@@ -6,7 +7,9 @@ import {
   LayoutDashboard, Users, FileText, ShieldCheck, Stethoscope,
   BookOpen, Bell, LogOut, Menu, MessageSquare, ClipboardList,
   Briefcase, Scale, CheckCircle, Home, UserRound, BarChart3, CalendarClock,
+  Send,
 } from 'lucide-react'
+import api from '../../services/api'
 
 const NAV = {
   SUPER_ADMIN: [
@@ -31,14 +34,14 @@ const NAV = {
     { label: 'Profile & Needs', icon: UserRound, to: '/dashboard/customer/profile' },
     { label: 'Quotes', icon: BarChart3, to: '/dashboard/customer/quotes' },
     { label: 'OTP Consent', icon: ShieldCheck, to: '/dashboard/customer/consent' },
-    { label: 'Medical', icon: CalendarClock, to: '/dashboard/customer/medical' },
     { label: 'My Policies', icon: FileText, to: '/dashboard/customer/policies' },
-    { label: 'Documents', icon: ClipboardList, to: '/dashboard/customer/documents' },
+    { label: 'Notifications', icon: Bell, to: '/dashboard/customer/notifications' },
     { label: 'RAG Chat', icon: MessageSquare, to: '/dashboard/customer/rag-chat' },
   ],
   UNDERWRITER: [
     { label: 'UW Queue', icon: ClipboardList, to: '/dashboard/underwriter' },
-    { label: 'Decisions', icon: CheckCircle, to: '/dashboard/underwriter/decisions' },
+    { label: 'KYC / Documents', icon: ShieldCheck, to: '/dashboard/underwriter/kyc' },
+    { label: 'Medical', icon: Stethoscope, to: '/dashboard/underwriter/medical' },
     { label: 'Knowledge Base', icon: BookOpen, to: '/dashboard/underwriter/kb' },
     { label: 'RAG Chat', icon: MessageSquare, to: '/dashboard/underwriter/rag-chat' },
   ],
@@ -59,12 +62,89 @@ const NAV = {
   ],
 }
 
+// Strip HTML tags and decode basic HTML entities to plain text
+function stripHtml(html) {
+  if (!html) return ''
+  return html
+    .replace(/<[^>]*>/g, ' ')      // remove tags
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')          // collapse whitespace
+    .trim()
+}
+
+function BellDropdown({ onClose }) {
+  const [notifs, setNotifs] = useState([])
+  const [loading, setLoading] = useState(true)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    api.get('/notifications/mine').then(r => setNotifs(r.data.notifications || [])).finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose() }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [onClose])
+
+  const markAllRead = async () => {
+    await api.post('/notifications/mark-all-read')
+    setNotifs(prev => prev.map(n => ({ ...n, status: 'SENT' })))
+  }
+
+  return (
+    <div ref={ref} className="absolute right-0 top-10 w-80 bg-[#161b2e] border border-[#2a2f45] rounded-xl shadow-2xl z-50 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2f45]">
+        <span className="font-bold text-sm">Notifications</span>
+        {notifs.some(n => n.status === 'PENDING') && (
+          <button onClick={markAllRead} className="text-xs text-[#6366f1] hover:underline cursor-pointer">Mark all read</button>
+        )}
+      </div>
+      <div className="max-h-80 overflow-y-auto">
+        {loading ? (
+          <div className="p-4 text-center text-xs text-[#6b7280]">Loading…</div>
+        ) : notifs.length === 0 ? (
+          <div className="p-6 text-center text-xs text-[#6b7280]">No notifications yet</div>
+        ) : notifs.slice(0, 10).map(n => (
+          <div key={n.id} className={`px-4 py-3 border-b border-[#2a2f45] last:border-0 ${n.status === 'PENDING' ? 'bg-[#6366f1]/5' : ''}`}>
+            <div className="flex items-start gap-2">
+              {n.status === 'PENDING' && <div className="w-1.5 h-1.5 rounded-full bg-[#6366f1] mt-1.5 flex-shrink-0" />}
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold truncate">{n.subject}</p>
+                <p className="text-xs text-[#6b7280] mt-0.5 line-clamp-2">{stripHtml(n.body) || n.notification_type}</p>
+                <p className="text-[10px] text-[#6b7280] mt-1">{n.created_at ? new Date(n.created_at).toLocaleString() : ''}</p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function DashboardShell() {
   const dispatch = useDispatch()
   const navigate = useNavigate()
   const { user } = useSelector(s => s.auth)
   const { sidebarOpen } = useSelector(s => s.ui)
   const navItems = NAV[user?.role] || []
+
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [bellOpen, setBellOpen] = useState(false)
+
+  useEffect(() => {
+    const fetch = () => {
+      api.get('/notifications/unread-count').then(r => setUnreadCount(r.data.count || 0)).catch(() => {})
+    }
+    fetch()
+    const interval = setInterval(fetch, 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
@@ -117,7 +197,20 @@ export default function DashboardShell() {
             <Menu size={20} />
           </button>
           <div className="flex-1" />
-          <Bell size={17} className="text-[#6b7280] cursor-pointer" />
+
+          {/* Bell with unread badge */}
+          <div className="relative">
+            <button onClick={() => setBellOpen(v => !v)} className="relative text-[#6b7280] hover:text-white cursor-pointer p-1">
+              <Bell size={18} />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#6366f1] text-white text-[9px] font-bold flex items-center justify-center">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+            {bellOpen && <BellDropdown onClose={() => { setBellOpen(false); api.get('/notifications/unread-count').then(r => setUnreadCount(r.data.count || 0)) }} />}
+          </div>
+
           <div className="w-8 h-8 rounded-full bg-[#6366f1] flex items-center justify-center text-white text-xs font-bold">
             {(user?.name || user?.role || 'U')[0].toUpperCase()}
           </div>

@@ -15,6 +15,52 @@ from configs.base import settings
 router = APIRouter(prefix="/medical", tags=["medical"])
 
 
+@router.get("/cases-for-uw")
+async def cases_for_uw(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_roles("OPS_ADMIN", "UNDERWRITER", "SUPER_ADMIN")),
+):
+    """Return all cases in PROPOSAL_GENERATION, MEDICAL_COORDINATION, or UNDERWRITING stages."""
+    from backend.app.models.all_models import Quote
+    result = await db.execute(
+        select(Case)
+        .where(Case.current_stage.in_([
+            CaseStage.PROPOSAL_GENERATION,
+            CaseStage.MEDICAL_COORDINATION,
+            CaseStage.UNDERWRITING,
+        ]))
+        .order_by(Case.created_at.desc())
+    )
+    cases = result.scalars().all()
+    out = []
+    for c in cases:
+        # Fetch medical requests for this case
+        mr_result = await db.execute(
+            select(MedicalRequest).where(MedicalRequest.case_id == c.id)
+        )
+        med_reqs = mr_result.scalars().all()
+        out.append({
+            "id": c.id,
+            "case_number": c.case_number,
+            "customer_id": c.customer_id,
+            "current_stage": c.current_stage,
+            "kyc_status": c.kyc_status,
+            "sum_assured": float(c.sum_assured) if c.sum_assured else None,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "medical_requests": [
+                {
+                    "id": mr.id,
+                    "requirements": mr.requirements,
+                    "status": mr.status,
+                    "created_at": mr.created_at.isoformat() if mr.created_at else None,
+                }
+                for mr in med_reqs
+            ],
+        })
+    return {"cases": out}
+
+
+
 class CreateMedicalReqBody(BaseModel):
     case_id: str
     customer_id: str
@@ -40,7 +86,7 @@ class ESignRequestBody(BaseModel):
 async def create_medical_req(
     body: CreateMedicalReqBody,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_roles("OPS_ADMIN", "SUPER_ADMIN")),
+    current_user=Depends(require_roles("OPS_ADMIN", "UNDERWRITER", "SUPER_ADMIN")),
 ):
     req = MedicalRequest(
         id=str(uuid.uuid4()),
@@ -166,7 +212,7 @@ async def mock_esign(
 @router.get("/queue")
 async def medical_queue(
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_roles("OPS_ADMIN", "SUPER_ADMIN")),
+    current_user=Depends(require_roles("OPS_ADMIN", "UNDERWRITER", "SUPER_ADMIN")),
 ):
     r = await db.execute(
         select(MedicalRequest)
@@ -220,7 +266,7 @@ async def upload_medical_doc(
 async def complete_medical(
     req_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_roles("OPS_ADMIN", "SUPER_ADMIN")),
+    current_user=Depends(require_roles("OPS_ADMIN", "UNDERWRITER", "SUPER_ADMIN")),
 ):
     r = await db.execute(select(MedicalRequest).where(MedicalRequest.id == req_id))
     req = r.scalar_one_or_none()
